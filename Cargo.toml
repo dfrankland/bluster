@@ -1,0 +1,16 @@
+[package]
+authors = ["Dylan Frankland <github@frankland.io>"]
+name = "bluster"
+version = "0.1.0"
+edition = "2018"
+
+[dependencies]
+
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+nix = "0.11.0"
+
+[target.'cfg(any(target_os = "windows", target_os = "freebsd"))'.dependencies]
+libusb = "0.3.0"
+
+[target.'cfg(any(target_os = "macos"))'.dependencies]
+xpc-connection = "0.2.1"
