@@ -1,5 +1,6 @@
 #![feature(uniform_paths)]
 
-mod connections;
+mod peripheral;
+pub mod gatt;
 
-pub use connections::connection;
+pub use peripheral::Peripheral;

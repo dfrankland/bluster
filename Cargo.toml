@@ -1,10 +1,12 @@
 [package]
-authors = ["Dylan Frankland <github@frankland.io>"]
 name = "bluster"
 version = "0.1.0"
+authors = ["Dylan Frankland <github@frankland.io>"]
 edition = "2018"
 
 [dependencies]
+futures-preview = "0.2.2"
+uuid = "0.7.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 nix = "0.11.0"
@@ -12,5 +14,7 @@ nix = "0.11.0"
 [target.'cfg(any(target_os = "windows", target_os = "freebsd"))'.dependencies]
 libusb = "0.3.0"
 
-[target.'cfg(any(target_os = "macos"))'.dependencies]
-xpc-connection = "0.2.1"
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+objc = "0.2.5"
+objc_id = "0.1.1"
+objc-foundation = "0.1.1"
