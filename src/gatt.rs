@@ -1,6 +1,6 @@
 pub mod primary_service {
-    use uuid::Uuid;
     use super::characteristic::Characteristic;
+    use uuid::Uuid;
 
     #[derive(Debug, Clone)]
     pub struct PrimaryService {
@@ -146,19 +146,13 @@ pub mod descriptor {
 
     #[derive(Debug, Clone)]
     pub struct Descriptor {
-      pub(crate) uuid: Uuid,
-      pub(crate) value: Vec<u8>,
+        pub(crate) uuid: Uuid,
+        pub(crate) value: Vec<u8>,
     }
 
     impl Descriptor {
-        pub fn new(
-            uuid: Uuid,
-            value: Vec<u8>,
-        ) -> Self {
-            Descriptor {
-                uuid,
-                value,
-            }
+        pub fn new(uuid: Uuid, value: Vec<u8>) -> Self {
+            Descriptor { uuid, value }
         }
     }
 }

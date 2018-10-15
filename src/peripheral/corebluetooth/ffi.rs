@@ -15,8 +15,11 @@ pub const DISPATCH_QUEUE_SERIAL: dispatch_queue_attr_t = 0 as dispatch_queue_att
 #[link(name = "AppKit", kind = "framework")]
 #[link(name = "Foundation", kind = "framework")]
 #[link(name = "CoreBluetooth", kind = "framework")]
-extern {
-    pub fn dispatch_queue_create(label: *const c_char, attr: dispatch_queue_attr_t) -> dispatch_queue_t;
+extern "C" {
+    pub fn dispatch_queue_create(
+        label: *const c_char,
+        attr: dispatch_queue_attr_t,
+    ) -> dispatch_queue_t;
     pub static CBAdvertisementDataServiceUUIDsKey: *mut Object;
     pub static CBAdvertisementDataLocalNameKey: *mut Object;
 }

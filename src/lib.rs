@@ -1,6 +1,6 @@
 #![feature(uniform_paths)]
 
-mod peripheral;
 pub mod gatt;
+mod peripheral;
 
 pub use peripheral::Peripheral;
