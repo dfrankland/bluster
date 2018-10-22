@@ -1,5 +1,10 @@
-use std::{collections::HashMap, boxed::Box};
-use dbus::{Connection, BusType, Message, stdintf::org_freedesktop_dbus::ObjectManager, Props, MessageItem, tree::{Factory, Tree, MTFn, MethodErr}, Path, arg::{Variant, RefArg}};
+use dbus::{
+    arg::{RefArg, Variant},
+    stdintf::org_freedesktop_dbus::ObjectManager,
+    tree::{Factory, MTFn, MethodErr, Tree},
+    BusType, Connection, Message, MessageItem, Path, Props,
+};
+use std::{boxed::Box, collections::HashMap};
 use uuid::Uuid;
 
 // const DBUS_OM_IFACE: &str = "org.freedesktop.DBus.ObjectManager"
@@ -36,53 +41,54 @@ impl Peripheral {
     pub fn new() -> Self {
         let connection = Connection::get_private(BusType::System).unwrap();
         let adapter_object_path = Peripheral::find_adapter(&connection);
-        let adapter_props = Props::new(&connection, BLUEZ_SERVICE_NAME, &adapter_object_path, ADAPTER_IFACE, 1000);
+        let adapter_props = Props::new(
+            &connection,
+            BLUEZ_SERVICE_NAME,
+            &adapter_object_path,
+            ADAPTER_IFACE,
+            1000,
+        );
 
-        adapter_props.set("Powered", MessageItem::Bool(true)).unwrap();
+        adapter_props
+            .set("Powered", MessageItem::Bool(true))
+            .unwrap();
 
         let advertisement_object_path = format!("{}{}", PATH_BASE, 0);
 
         let factory = Factory::new_fn::<()>();
-        let tree = factory
-            .tree(())
-            .add(
-                factory
-                    .object_path(advertisement_object_path.clone(), ())
-                    .add(
+        let tree = factory.tree(()).add(
+            factory
+                .object_path(advertisement_object_path.clone(), ())
+                .add(
+                    factory
+                        .interface(LE_ADVERTISEMENT_IFACE, ())
+                        .add_m(factory.method("Release", (), |method_info| {
+                            println!("Release method called!");
+                            Ok(vec![method_info.msg.method_return()])
+                        })),
+                )
+                .add(
+                    factory.interface(DBUS_PROP_IFACE, ()).add_m(
                         factory
-                            .interface(LE_ADVERTISEMENT_IFACE, ())
-                            .add_m(
-                                factory
-                                    .method("Release", (), |method_info| {
-                                        println!("Release method called!");
-                                        Ok(vec![method_info.msg.method_return()])
-                                    })
-                            )
-                    )
-                    .add(
-                        factory
-                            .interface(DBUS_PROP_IFACE, ())
-                            .add_m(
-                                factory
-                                    .method("GetAll", (), |method_info| {
-                                        println!("GetAll method called!");
-                                        let interface_name: &str = &method_info.iface.get_name();
-                                        if interface_name != LE_ADVERTISEMENT_IFACE {
-                                            return Err(MethodErr::invalid_arg(method_info));
-                                        }
-                                        println!("Returning props to GetAll!");
-                                        let mut props = HashMap::new();
-                                        props.insert("Type", "peripheral");
-                                        props.insert("LocalName", "hello");
-                                        Ok(vec![method_info.msg.method_return().append1(props)])
-                                    })
-                                    .in_arg("s")
-                                    .out_arg("a{sv}")
-                            )
-                    )
-                    .introspectable()
-                    .object_manager()
-            );
+                            .method("GetAll", (), |method_info| {
+                                println!("GetAll method called!");
+                                let interface_name: &str = &method_info.iface.get_name();
+                                if interface_name != LE_ADVERTISEMENT_IFACE {
+                                    return Err(MethodErr::invalid_arg(method_info));
+                                }
+                                println!("Returning props to GetAll!");
+                                let mut props = HashMap::new();
+                                props.insert("Type", "peripheral");
+                                props.insert("LocalName", "hello");
+                                Ok(vec![method_info.msg.method_return().append1(props)])
+                            })
+                            .in_arg("s")
+                            .out_arg("a{sv}"),
+                    ),
+                )
+                .introspectable()
+                .object_manager(),
+        );
 
         tree.set_registered(&connection, true).unwrap();
         connection.add_handler(tree);
@@ -96,8 +102,18 @@ impl Peripheral {
     }
 
     pub fn is_powered_on(self: &Self) -> bool {
-        let adapter_props = Props::new(&self.connection, BLUEZ_SERVICE_NAME, &self.adapter_object_path, ADAPTER_IFACE, 1000);
-        adapter_props.get("Powered").unwrap().inner::<bool>().unwrap()
+        let adapter_props = Props::new(
+            &self.connection,
+            BLUEZ_SERVICE_NAME,
+            &self.adapter_object_path,
+            ADAPTER_IFACE,
+            1000,
+        );
+        adapter_props
+            .get("Powered")
+            .unwrap()
+            .inner::<bool>()
+            .unwrap()
     }
 
     pub fn start_advertising(self: &Self, _name: &str, _uuids: &[Uuid]) {
@@ -107,9 +123,13 @@ impl Peripheral {
             &self.adapter_object_path,
             LE_ADVERTISING_MANAGER_IFACE,
             "RegisterAdvertisement",
-        ).unwrap();
+        )
+        .unwrap();
 
-        println!("Using advertisment path {}", &self.advertisement_object_path);
+        println!(
+            "Using advertisment path {}",
+            &self.advertisement_object_path
+        );
         let path = Path::new(self.advertisement_object_path.clone()).unwrap();
         let options: HashMap<String, Variant<Box<RefArg>>> = HashMap::new();
         message = message.append2(path, options);
