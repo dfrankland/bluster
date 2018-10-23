@@ -16,7 +16,7 @@ matrix:
     - os: linux # 14.04
       dist: trusty
 before_install:
-  - if [ $TRAVIS_OS_NAME = linux ]; then sudo apt-get install -y dbus bluez; fi
+  - if [ $TRAVIS_OS_NAME = linux ]; then sudo apt-get install -y libdbus-1-dev; fi
 before_script:
   - rustup component add clippy-preview rustfmt-preview
 script:
