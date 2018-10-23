@@ -1,13 +1,12 @@
 use dbus::{
     arg::{RefArg, Variant},
     stdintf::org_freedesktop_dbus::ObjectManager,
-    tree::{Factory, MTFn, MethodErr, Tree},
+    tree::{Factory, MTFn},
     BusType, Connection, Message, MessageItem, Path, Props,
 };
 use std::{boxed::Box, collections::HashMap};
 use uuid::Uuid;
 
-// const DBUS_OM_IFACE: &str = "org.freedesktop.DBus.ObjectManager"
 const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
 const BLUEZ_SERVICE_NAME: &str = "org.bluez";
 const ADAPTER_IFACE: &str = "org.bluez.Adapter1";
@@ -21,7 +20,6 @@ pub struct Peripheral {
     connection: Connection,
     adapter_object_path: String,
     factory: Factory<MTFn>,
-    // tree: Tree<MTFn, ()>,
     advertisement_object_path: String,
 }
 
@@ -56,39 +54,30 @@ impl Peripheral {
         let advertisement_object_path = format!("{}{}", PATH_BASE, 0);
 
         let factory = Factory::new_fn::<()>();
-        let tree = factory.tree(()).add(
-            factory
-                .object_path(advertisement_object_path.clone(), ())
-                .add(
+
+        let object_path = factory
+            .object_path(advertisement_object_path.clone(), ())
+            .add(
+                factory
+                    .interface(LE_ADVERTISEMENT_IFACE, ())
+                    .add_m(factory.method("Release", (), |method_info| {
+                        Ok(vec![method_info.msg.method_return()])
+                    })),
+            )
+            .add(
+                factory.interface(DBUS_PROP_IFACE, ()).add_m(
                     factory
-                        .interface(LE_ADVERTISEMENT_IFACE, ())
-                        .add_m(factory.method("Release", (), |method_info| {
-                            println!("Release method called!");
-                            Ok(vec![method_info.msg.method_return()])
-                        })),
-                )
-                .add(
-                    factory.interface(DBUS_PROP_IFACE, ()).add_m(
-                        factory
-                            .method("GetAll", (), |method_info| {
-                                println!("GetAll method called!");
-                                let interface_name: &str = &method_info.iface.get_name();
-                                if interface_name != LE_ADVERTISEMENT_IFACE {
-                                    return Err(MethodErr::invalid_arg(method_info));
-                                }
-                                println!("Returning props to GetAll!");
-                                let mut props = HashMap::new();
-                                props.insert("Type", "peripheral");
-                                props.insert("LocalName", "hello");
-                                Ok(vec![method_info.msg.method_return().append1(props)])
-                            })
-                            .in_arg("s")
-                            .out_arg("a{sv}"),
-                    ),
-                )
-                .introspectable()
-                .object_manager(),
-        );
+                        .method("GetAll", (), |method_info| {
+                            let mut props: HashMap<&str, Variant<&str>> = HashMap::new();
+                            props.insert("Type", Variant("peripheral"));
+                            props.insert("LocalName", Variant("hello"));
+                            Ok(vec![method_info.msg.method_return().append1(props)])
+                        })
+                        .in_arg("s")
+                        .out_arg("a{sv}"),
+                ),
+            );
+        let tree = factory.tree(()).add(object_path);
 
         tree.set_registered(&connection, true).unwrap();
         connection.add_handler(tree);
@@ -117,7 +106,6 @@ impl Peripheral {
     }
 
     pub fn start_advertising(self: &Self, _name: &str, _uuids: &[Uuid]) {
-        println!("Using HCI path {}", &self.adapter_object_path);
         let mut message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter_object_path,
@@ -126,17 +114,22 @@ impl Peripheral {
         )
         .unwrap();
 
-        println!(
-            "Using advertisment path {}",
-            &self.advertisement_object_path
-        );
         let path = Path::new(self.advertisement_object_path.clone()).unwrap();
         let options: HashMap<String, Variant<Box<RefArg>>> = HashMap::new();
         message = message.append2(path, options);
 
-        let reply = self.connection.send_with_reply_and_block(message, 10000);
-
-        println!("{:?}", reply);
+        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
+        let done2 = done.clone();
+        self.connection.add_handler(
+            self.connection
+                .send_with_reply(message, move |_| {
+                    done2.set(true);
+                })
+                .unwrap(),
+        );
+        while !done.get() {
+            self.connection.incoming(100).next();
+        }
     }
 
     pub fn is_advertising(self: &Self) -> bool {
