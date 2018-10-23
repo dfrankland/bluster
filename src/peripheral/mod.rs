@@ -4,9 +4,9 @@ mod corebluetooth;
 pub use corebluetooth::Peripheral;
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
-mod hci;
+mod bluez;
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub use hci::Peripheral;
+pub use bluez::Peripheral;
 
 #[cfg(any(target_os = "windows", target_os = "freebsd"))]
 mod usb;
