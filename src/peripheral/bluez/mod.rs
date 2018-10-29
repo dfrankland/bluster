@@ -2,9 +2,9 @@ use dbus::{
     arg::{RefArg, Variant},
     stdintf::org_freedesktop_dbus::ObjectManager,
     tree::{Factory, MTFn},
-    BusType, Connection, Message, MessageItem, Path, Props,
+    BusType, Connection, Message, MessageItem, MessageItemArray, Path, Props, Signature,
 };
-use std::{boxed::Box, collections::HashMap};
+use std::{borrow::Borrow, boxed::Box, collections::HashMap, sync::Arc};
 use uuid::Uuid;
 
 const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
@@ -51,42 +51,11 @@ impl Peripheral {
             .set("Powered", MessageItem::Bool(true))
             .unwrap();
 
-        let advertisement_object_path = format!("{}{}", PATH_BASE, 0);
-
-        let factory = Factory::new_fn::<()>();
-
-        let object_path = factory
-            .object_path(advertisement_object_path.clone(), ())
-            .add(
-                factory
-                    .interface(LE_ADVERTISEMENT_IFACE, ())
-                    .add_m(factory.method("Release", (), |method_info| {
-                        Ok(vec![method_info.msg.method_return()])
-                    })),
-            )
-            .add(
-                factory.interface(DBUS_PROP_IFACE, ()).add_m(
-                    factory
-                        .method("GetAll", (), |method_info| {
-                            let mut props: HashMap<&str, Variant<&str>> = HashMap::new();
-                            props.insert("Type", Variant("peripheral"));
-                            props.insert("LocalName", Variant("hello"));
-                            Ok(vec![method_info.msg.method_return().append1(props)])
-                        })
-                        .in_arg("s")
-                        .out_arg("a{sv}"),
-                ),
-            );
-        let tree = factory.tree(()).add(object_path);
-
-        tree.set_registered(&connection, true).unwrap();
-        connection.add_handler(tree);
-
         Peripheral {
             connection,
             adapter_object_path,
-            factory,
-            advertisement_object_path,
+            factory: Factory::new_fn::<()>(),
+            advertisement_object_path: format!("{}{}", PATH_BASE, 0),
         }
     }
 
@@ -105,7 +74,77 @@ impl Peripheral {
             .unwrap()
     }
 
-    pub fn start_advertising(self: &Self, _name: &str, _uuids: &[Uuid]) {
+    pub fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) {
+        let name = Arc::new(name.to_string());
+        let uuids = Arc::new(
+            uuids
+                .to_vec()
+                .iter()
+                .map(|uuid| uuid.to_string())
+                .collect::<Vec<String>>(),
+        );
+
+        // Create advertisment object
+        let object_path = self
+            .factory
+            .object_path(self.advertisement_object_path.clone(), ())
+            .add(
+                self.factory
+                    .interface(LE_ADVERTISEMENT_IFACE, ())
+                    .add_m(self.factory.method("Release", (), |method_info| {
+                        Ok(vec![method_info.msg.method_return()])
+                    })),
+            )
+            .add(
+                self.factory.interface(DBUS_PROP_IFACE, ()).add_m(
+                    self.factory
+                        .method("GetAll", (), move |method_info| {
+                            let local_name = name.clone();
+                            let local_name: &String = local_name.borrow();
+
+                            let service_uuids = uuids.clone();
+                            let service_uuids: &Vec<String> = service_uuids.borrow();
+
+                            let mut props = HashMap::new();
+
+                            props.insert(
+                                "Type",
+                                Variant(MessageItem::Str("peripheral".to_string())),
+                            );
+                            props.insert(
+                                "LocalName",
+                                Variant(MessageItem::Str(local_name.to_string())),
+                            );
+
+                            if !service_uuids.is_empty() {
+                                props.insert(
+                                    "ServiceUUIDs",
+                                    Variant(MessageItem::Array(
+                                        MessageItemArray::new(
+                                            service_uuids
+                                                .iter()
+                                                .map(|x| MessageItem::Str(x.to_string()))
+                                                .collect::<Vec<MessageItem>>(),
+                                            Signature::make::<String>(),
+                                        )
+                                        .unwrap(),
+                                    )),
+                                );
+                            }
+
+                            Ok(vec![method_info.msg.method_return().append1(props)])
+                        })
+                        .in_arg(Signature::make::<String>())
+                        .out_arg(Signature::make::<HashMap<String, Variant<MessageItem>>>()),
+                ),
+            );
+
+        // Register advertisement object to DBus
+        let tree = self.factory.tree(()).add(object_path);
+        tree.set_registered(&self.connection, true).unwrap();
+        self.connection.add_handler(tree);
+
+        // Create message to register advertisement with Bluez
         let mut message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter_object_path,
@@ -113,11 +152,12 @@ impl Peripheral {
             "RegisterAdvertisement",
         )
         .unwrap();
+        message = message.append2(
+            Path::new(self.advertisement_object_path.clone()).unwrap(),
+            HashMap::<String, Variant<Box<RefArg>>>::new(),
+        );
 
-        let path = Path::new(self.advertisement_object_path.clone()).unwrap();
-        let options: HashMap<String, Variant<Box<RefArg>>> = HashMap::new();
-        message = message.append2(path, options);
-
+        // Send message
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
         let done2 = done.clone();
         self.connection.add_handler(
