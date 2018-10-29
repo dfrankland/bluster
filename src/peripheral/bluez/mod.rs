@@ -4,7 +4,15 @@ use dbus::{
     tree::{Factory, MTFn},
     BusType, Connection, Message, MessageItem, MessageItemArray, Path, Props, Signature,
 };
-use std::{borrow::Borrow, boxed::Box, collections::HashMap, sync::Arc};
+use std::{
+    borrow::Borrow,
+    boxed::Box,
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
 use uuid::Uuid;
 
 const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
@@ -21,6 +29,7 @@ pub struct Peripheral {
     adapter_object_path: String,
     factory: Factory<MTFn>,
     advertisement_object_path: String,
+    is_advertising: Arc<AtomicBool>,
 }
 
 impl Peripheral {
@@ -56,6 +65,7 @@ impl Peripheral {
             adapter_object_path,
             factory: Factory::new_fn::<()>(),
             advertisement_object_path: format!("{}{}", PATH_BASE, 0),
+            is_advertising: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -75,6 +85,7 @@ impl Peripheral {
     }
 
     pub fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) {
+        let is_advertising = self.is_advertising.clone();
         let name = Arc::new(name.to_string());
         let uuids = Arc::new(
             uuids
@@ -91,7 +102,8 @@ impl Peripheral {
             .add(
                 self.factory
                     .interface(LE_ADVERTISEMENT_IFACE, ())
-                    .add_m(self.factory.method("Release", (), |method_info| {
+                    .add_m(self.factory.method("Release", (), move |method_info| {
+                        is_advertising.store(false, Ordering::Relaxed);
                         Ok(vec![method_info.msg.method_return()])
                     })),
             )
@@ -158,11 +170,13 @@ impl Peripheral {
         );
 
         // Send message
+        let is_advertising = self.is_advertising.clone();
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
         let done2 = done.clone();
         self.connection.add_handler(
             self.connection
                 .send_with_reply(message, move |_| {
+                    is_advertising.store(true, Ordering::Relaxed);
                     done2.set(true);
                 })
                 .unwrap(),
@@ -184,11 +198,13 @@ impl Peripheral {
         .append1(Path::new(self.advertisement_object_path.clone()).unwrap());
 
         // Send message
+        let is_advertising = self.is_advertising.clone();
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
         let done2 = done.clone();
         self.connection.add_handler(
             self.connection
                 .send_with_reply(message, move |_| {
+                    is_advertising.store(false, Ordering::Relaxed);
                     done2.set(true);
                 })
                 .unwrap(),
@@ -199,7 +215,8 @@ impl Peripheral {
     }
 
     pub fn is_advertising(self: &Self) -> bool {
-        true
+        let is_advertising = self.is_advertising.clone();
+        is_advertising.load(Ordering::Relaxed)
     }
 }
 
