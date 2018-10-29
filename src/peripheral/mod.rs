@@ -67,4 +67,6 @@ fn it_connects_changes_state() {
         println!("Advertising {:?}", peripheral.is_advertising());
         thread::sleep(time::Duration::from_secs(1));
     }
+
+    peripheral.stop_advertising();
 }
