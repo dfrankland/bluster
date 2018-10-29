@@ -69,4 +69,9 @@ fn it_connects_changes_state() {
     }
 
     peripheral.stop_advertising();
+
+    for _ in 0..10 {
+        println!("Advertising {:?}", peripheral.is_advertising());
+        thread::sleep(time::Duration::from_secs(1));
+    }
 }
