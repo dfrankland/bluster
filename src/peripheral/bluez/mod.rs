@@ -145,17 +145,43 @@ impl Peripheral {
         self.connection.add_handler(tree);
 
         // Create message to register advertisement with Bluez
-        let mut message = Message::new_method_call(
+        let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter_object_path,
             LE_ADVERTISING_MANAGER_IFACE,
             "RegisterAdvertisement",
         )
-        .unwrap();
-        message = message.append2(
+        .unwrap()
+        .append2(
             Path::new(self.advertisement_object_path.clone()).unwrap(),
             HashMap::<String, Variant<Box<RefArg>>>::new(),
         );
+
+        // Send message
+        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
+        let done2 = done.clone();
+        self.connection.add_handler(
+            self.connection
+                .send_with_reply(message, move |_| {
+                    done2.set(true);
+                })
+                .unwrap(),
+        );
+        while !done.get() {
+            self.connection.incoming(100).next();
+        }
+    }
+
+    pub fn stop_advertising(self: &Self) {
+        // Create message to ungregister advertisement with Bluez
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            &self.adapter_object_path,
+            LE_ADVERTISING_MANAGER_IFACE,
+            "UnregisterAdvertisement",
+        )
+        .unwrap()
+        .append1(Path::new(self.advertisement_object_path.clone()).unwrap());
 
         // Send message
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
