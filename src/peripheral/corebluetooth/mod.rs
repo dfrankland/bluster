@@ -25,6 +25,8 @@ use ffi::{
     CBManagerState, DISPATCH_QUEUE_SERIAL,
 };
 
+use characteristic_flags::get_properties_and_permissions;
+
 use super::super::gatt::{characteristic::Property, primary_service::PrimaryService};
 
 fn objc_to_rust_bool(objc_bool: BOOL) -> bool {
@@ -166,57 +168,8 @@ impl Peripheral {
         let characteristics: Vec<Id<NSObject>> = primary_service
             .characteristics
             .iter()
-            .map(
-                |characteristic| {
-                    let mut properties = 0x000;
-                    let mut permissions = 0x000;
-
-                    if characteristic.properties.contains(&Property::Read) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyRead as u8;
-
-                      if characteristic.secure.contains(&Property::Read) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsReadEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsReadable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::WriteWithoutResponse) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyWriteWithoutResponse as u8;
-
-                      if characteristic.secure.contains(&Property::WriteWithoutResponse) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Write) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyWrite as u8;
-
-                      if characteristic.secure.contains(&Property::Write) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Notify) {
-                      if characteristic.secure.contains(&Property::Notify) {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyNotifyEncryptionRequired as u8;
-                      } else {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyNotify as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Indicate) {
-                      if characteristic.secure.contains(&Property::Indicate) {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyIndicateEncryptionRequired as u8;
-                      } else {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyIndicate as u8;
-                      }
-                    }
-
+            .map(|characteristic| {
+                if let (properties, permissions) = get_properties_and_permissions(characteristic) {
                     unsafe {
                         let init_with_type = NSString::from_str(&characteristic.uuid.to_string());
 
@@ -224,24 +177,20 @@ impl Peripheral {
                         let obj: *mut Object = msg_send![cls, alloc];
 
                         let mutable_characteristic: *mut Object = match characteristic.value {
-                            Some(ref value) => {
-                                msg_send![obj, initWithType:init_with_type
-                                                 properties:properties
-                                                      value:NSData::with_bytes(value)
-                                                permissions:permissions]
-                            },
-                            None => {
-                                msg_send![obj, initWithType:init_with_type
-                                                 properties:properties
-                                                      value:nil
-                                                permissions:permissions]
-                            },
+                            Some(ref value) => msg_send![obj, initWithType:init_with_type
+                                                                properties:properties
+                                                                     value:NSData::with_bytes(value)
+                                                               permissions:permissions],
+                            None => msg_send![obj, initWithType:init_with_type
+                                                     properties:properties
+                                                          value:nil
+                                                    permissions:permissions],
                         };
 
                         Id::from_ptr(mutable_characteristic as *mut NSObject)
                     }
                 }
-            )
+            })
             .collect();
 
         unsafe {
