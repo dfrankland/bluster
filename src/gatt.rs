@@ -1,17 +1,133 @@
-pub mod primary_service {
+/// Generic Attributes (GATT)
+
+macro_rules! _write_type {
+    ($event_sender:ident, $secure:ident) => {
+        #[derive(Debug, Clone)]
+        pub enum Write {
+            WithResponse($secure),
+            WithoutResponse($event_sender),
+        }
+
+        impl Write {
+            pub fn sender(self: Self) -> $event_sender {
+                match self {
+                    Write::WithResponse(event_sender) => event_sender.sender(),
+                    Write::WithoutResponse(event_sender) => event_sender,
+                }
+            }
+        }
+    };
+    ($other_type:ident) => {
+        pub type Write = $other_type;
+    };
+}
+
+macro_rules! _properties {
+    ($event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
+        #[derive(Debug, Clone)]
+        pub struct Properties {
+            pub(crate) read: Option<Secure>,
+            pub(crate) write: Option<Write>,
+            $(pub(crate) $member: Option<$member_type>,)*
+        }
+
+        impl Properties {
+            pub fn new(
+                read: Option<Secure>,
+                write: Option<Write>,
+                $($member: Option<$member_type>,)*
+            ) -> Self {
+                Properties {
+                    read,
+                    write,
+                    $($member,)*
+                }
+            }
+
+            pub fn is_read_only(self: &Self) -> bool {
+                self.read.is_some() && self.write.is_none()
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        pub enum Secure {
+            Secure($event_sender),
+            Insecure($event_sender),
+        }
+
+        impl Secure {
+            pub fn sender(self: Self) -> $event_sender {
+                match self {
+                    Secure::Secure(event_sender) => event_sender,
+                    Secure::Insecure(event_sender) => event_sender,
+                }
+            }
+        }
+    }
+}
+
+macro_rules! properties {
+    (WriteWithResponse, $event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
+        _write_type!(Secure);
+        _properties!($event_sender, { $($member: $member_type,)* });
+    };
+    (WriteWithResponse, $event_sender:ident, { $($member:ident: $member_type:ty),* }) => {
+        _write_type!(Secure);
+        _properties!($event_sender, { $($member: $member_type,)* });
+    };
+    (WriteWithResponse, $event_sender:ident) => {
+        _write_type!(Secure);
+        _properties!($event_sender, {});
+    };
+    (WriteWithAndWithoutResponse, $event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
+        _write_type!($event_sender, Secure);
+        _properties!($event_sender, { $($member: $member_type,)* });
+    };
+    (WriteWithAndWithoutResponse, $event_sender:ident, { $($member:ident: $member_type:ty),* }) => {
+        _write_type!($event_sender, Secure);
+        _properties!($event_sender, { $($member: $member_type,)* });
+    };
+    (WriteWithAndWithoutResponse, $event_sender:ident) => {
+        _write_type!($event_sender:ident, Secure);
+        properties!($event_sender, {});
+    };
+}
+
+macro_rules! impl_uuid_hash_eq {
+    ($struct_with_uuid_member:ident) => {
+        impl Hash for $struct_with_uuid_member {
+            fn hash<H: Hasher>(&self, state: &mut H) {
+                self.uuid.hash(state);
+            }
+        }
+
+        impl PartialEq for $struct_with_uuid_member {
+            fn eq(&self, other: &$struct_with_uuid_member) -> bool {
+                self.uuid == other.uuid
+            }
+        }
+
+        impl Eq for $struct_with_uuid_member {}
+    };
+}
+
+pub mod service {
     use super::characteristic::Characteristic;
+    use std::collections::HashSet;
     use uuid::Uuid;
 
     #[derive(Debug, Clone)]
-    pub struct PrimaryService {
+    pub struct Service {
         pub(crate) uuid: Uuid,
-        pub(crate) characteristics: Vec<Characteristic>,
+        pub(crate) primary: bool,
+        pub(crate) characteristics: HashSet<Characteristic>,
     }
 
-    impl PrimaryService {
-        pub fn new(uuid: Uuid, characteristics: Vec<Characteristic>) -> Self {
-            PrimaryService {
+    impl Service {
+        pub fn new(uuid: Uuid, primary: bool, characteristics: HashSet<Characteristic>) -> Self {
+            Service {
                 uuid,
+                primary,
                 characteristics,
             }
         }
@@ -19,140 +135,109 @@ pub mod primary_service {
 }
 
 pub mod characteristic {
-    use std::collections::HashSet;
+    use super::{descriptor::Descriptor, event::EventSender};
+    use std::{
+        collections::HashSet,
+        hash::{Hash, Hasher},
+    };
     use uuid::Uuid;
-    // use futures::channel::oneshot::Sender;
-    use super::descriptor::Descriptor;
 
     #[derive(Debug, Clone)]
     pub struct Characteristic {
         pub(crate) uuid: Uuid,
-        pub(crate) properties: HashSet<Property>,
-        pub(crate) secure: HashSet<Property>,
+        pub(crate) properties: Properties,
         pub(crate) value: Option<Vec<u8>>,
-        pub(crate) descriptors: Vec<Descriptor>,
+        pub(crate) descriptors: HashSet<Descriptor>,
     }
 
     impl Characteristic {
         pub fn new(
             uuid: Uuid,
-            properties: HashSet<Property>,
-            secure: HashSet<Property>,
+            properties: Properties,
             value: Option<Vec<u8>>,
-            descriptors: Vec<Descriptor>,
+            descriptors: HashSet<Descriptor>,
         ) -> Self {
             Characteristic {
                 uuid,
                 properties,
-                secure,
                 value,
                 descriptors,
             }
         }
     }
 
-    #[derive(Debug, Clone, Hash, Eq, PartialEq)]
-    pub enum Property {
-        Read,
-        Write,
-        WriteWithoutResponse,
-        Notify,
-        Indicate,
-    }
+    impl_uuid_hash_eq!(Characteristic);
 
-    // TODO: Implement events that will be sent
-    //
-    // #[derive(Debug)]
-    // pub enum Event {
-    //     ReadRequest(ReadRequest),
-    //     WriteRequest(WriteRequest),
-    //     NotifySubscribe(NotifySubscribe),
-    //     NotifyUnsubscribe,
-    //     Notify,
-    //     Indicate,
-    // }
-    //
-    // #[derive(Debug)]
-    // pub struct ReadRequest {
-    //     pub(crate) offset: u16,
-    //     pub(crate) callback: Sender<(ResultCode, Vec<u8>)>,
-    // }
-    //
-    // impl ReadRequest {
-    //     pub fn new(
-    //         offset: u16,
-    //         callback: Sender<(ResultCode, Vec<u8>)>,
-    //     ) -> Self {
-    //         ReadRequest {
-    //             offset,
-    //             callback,
-    //         }
-    //     }
-    // }
-    //
-    // #[derive(Debug)]
-    // pub struct WriteRequest {
-    //     pub(crate) data: Vec<u8>,
-    //     pub(crate) offset: u16,
-    //     pub(crate) without_response: bool,
-    //     pub(crate) callback: Sender<ResultCode>,
-    // }
-    //
-    // impl WriteRequest {
-    //     pub fn new(
-    //         data: Vec<u8>,
-    //         offset: u16,
-    //         without_response: bool,
-    //         callback: Sender<ResultCode>,
-    //     ) -> Self {
-    //         WriteRequest {
-    //             data,
-    //             offset,
-    //             without_response,
-    //             callback,
-    //         }
-    //     }
-    // }
-    //
-    // #[derive(Debug)]
-    // pub struct NotifySubscribe {
-    //     pub(crate) max_value_size: u16,
-    //     pub(crate) update_value_callback: Sender<Vec<u8>>,
-    // }
-    //
-    // impl NotifySubscribe {
-    //     pub fn new(
-    //         max_value_size: u16,
-    //         update_value_callback: Sender<Vec<u8>>,
-    //     ) -> Self {
-    //         NotifySubscribe {
-    //             max_value_size,
-    //             update_value_callback,
-    //         }
-    //     }
-    // }
-    //
-    // #[derive(Debug)]
-    // pub enum ResultCode {
-    //     Success,
-    //     InvalidOffset,
-    //     InvalidAttributeLength,
-    //     UnlikelyError,
-    // }
+    properties!(WriteWithAndWithoutResponse, EventSender, { notify: EventSender, indicate: EventSender });
 }
 
 pub mod descriptor {
+    use super::event::EventSender;
+    use std::hash::{Hash, Hasher};
     use uuid::Uuid;
 
     #[derive(Debug, Clone)]
     pub struct Descriptor {
         pub(crate) uuid: Uuid,
-        pub(crate) value: Vec<u8>,
+        pub(crate) properties: Properties,
+        pub(crate) value: Option<Vec<u8>>,
     }
 
     impl Descriptor {
-        pub fn new(uuid: Uuid, value: Vec<u8>) -> Self {
-            Descriptor { uuid, value }
+        pub fn new(uuid: Uuid, properties: Properties, value: Option<Vec<u8>>) -> Self {
+            Descriptor {
+                uuid,
+                properties,
+                value,
+            }
         }
+    }
+
+    impl_uuid_hash_eq!(Descriptor);
+
+    properties!(WriteWithResponse, EventSender);
+}
+
+pub mod event {
+    use futures::channel::{mpsc, oneshot};
+
+    pub type EventSender = mpsc::Sender<Event>;
+    pub type ResponseSender = oneshot::Sender<Response>;
+
+    #[derive(Debug)]
+    pub enum Event {
+        ReadRequest(ReadRequest),
+        WriteRequest(WriteRequest),
+        NotifySubscribe(NotifySubscribe),
+        NotifyUnsubscribe,
+        Notify,
+        Indicate,
+    }
+
+    #[derive(Debug)]
+    pub struct ReadRequest {
+        pub offset: u16,
+        pub response: ResponseSender,
+    }
+
+    #[derive(Debug)]
+    pub struct WriteRequest {
+        pub data: Vec<u8>,
+        pub offset: u16,
+        pub without_response: bool,
+        pub response: ResponseSender,
+    }
+
+    #[derive(Debug)]
+    pub struct NotifySubscribe {
+        pub max_value_size: u16,
+    }
+
+    #[derive(Debug)]
+    pub enum Response {
+        Success(Vec<u8>),
+        InvalidOffset,
+        InvalidAttributeLength,
+        UnlikelyError,
     }
 }
