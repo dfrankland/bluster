@@ -1,3 +1,4 @@
+mod characteristic_flags;
 mod ffi;
 
 use std::{
@@ -21,11 +22,12 @@ use uuid::Uuid;
 
 use ffi::{
     dispatch_queue_create, nil, CBATTError, CBAdvertisementDataLocalNameKey,
-    CBAdvertisementDataServiceUUIDsKey, CBAttributePermissions, CBCharacteristicProperties,
-    CBManagerState, DISPATCH_QUEUE_SERIAL,
+    CBAdvertisementDataServiceUUIDsKey, CBManagerState, DISPATCH_QUEUE_SERIAL,
 };
 
-use super::super::gatt::{characteristic::Property, primary_service::PrimaryService};
+use characteristic_flags::get_properties_and_permissions;
+
+use crate::gatt::service::Service;
 
 fn objc_to_rust_bool(objc_bool: BOOL) -> bool {
     match objc_bool {
@@ -110,7 +112,7 @@ impl Peripheral {
         })
     }
 
-    pub fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) {
+    pub fn start_advertising(self: &mut Self, name: &str, uuids: &[Uuid]) {
         let peripheral_manager = unsafe {
             *self
                 .peripheral_manager_delegate
@@ -144,7 +146,7 @@ impl Peripheral {
         }
     }
 
-    pub fn stop_advertising(self: &Self) {
+    pub fn stop_advertising(self: &mut Self) {
         unsafe {
             let peripheral_manager = *self
                 .peripheral_manager_delegate
@@ -162,92 +164,38 @@ impl Peripheral {
         }
     }
 
-    pub fn add_service(self: &Self, primary_service: &PrimaryService) {
-        let characteristics: Vec<Id<NSObject>> = primary_service
+    pub fn add_service(self: &mut Self, service: &Service) {
+        let characteristics: Vec<Id<NSObject>> = service
             .characteristics
             .iter()
-            .map(
-                |characteristic| {
-                    let mut properties = 0x000;
-                    let mut permissions = 0x000;
+            .map(|characteristic| {
+                let (properties, permissions) = get_properties_and_permissions(characteristic);
+                unsafe {
+                    let init_with_type = NSString::from_str(&characteristic.uuid.to_string());
 
-                    if characteristic.properties.contains(&Property::Read) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyRead as u8;
+                    let cls = class!(CBMutableCharacteristic);
+                    let obj: *mut Object = msg_send![cls, alloc];
 
-                      if characteristic.secure.contains(&Property::Read) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsReadEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsReadable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::WriteWithoutResponse) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyWriteWithoutResponse as u8;
-
-                      if characteristic.secure.contains(&Property::WriteWithoutResponse) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Write) {
-                      properties |= CBCharacteristicProperties::CBCharacteristicPropertyWrite as u8;
-
-                      if characteristic.secure.contains(&Property::Write) {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteEncryptionRequired as u8;
-                      } else {
-                        permissions |= CBAttributePermissions::CBAttributePermissionsWriteable as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Notify) {
-                      if characteristic.secure.contains(&Property::Notify) {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyNotifyEncryptionRequired as u8;
-                      } else {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyNotify as u8;
-                      }
-                    }
-
-                    if characteristic.properties.contains(&Property::Indicate) {
-                      if characteristic.secure.contains(&Property::Indicate) {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyIndicateEncryptionRequired as u8;
-                      } else {
-                        properties |= CBCharacteristicProperties::CBCharacteristicPropertyIndicate as u8;
-                      }
-                    }
-
-                    unsafe {
-                        let init_with_type = NSString::from_str(&characteristic.uuid.to_string());
-
-                        let cls = class!(CBMutableCharacteristic);
-                        let obj: *mut Object = msg_send![cls, alloc];
-
-                        let mutable_characteristic: *mut Object = match characteristic.value {
-                            Some(ref value) => {
-                                msg_send![obj, initWithType:init_with_type
-                                                 properties:properties
-                                                      value:NSData::with_bytes(value)
-                                                permissions:permissions]
-                            },
-                            None => {
-                                msg_send![obj, initWithType:init_with_type
+                    let mutable_characteristic: *mut Object = match characteristic.value {
+                        Some(ref value) => msg_send![obj, initWithType:init_with_type
+                                                            properties:properties
+                                                                 value:NSData::with_bytes(value)
+                                                           permissions:permissions],
+                        None => msg_send![obj, initWithType:init_with_type
                                                  properties:properties
                                                       value:nil
-                                                permissions:permissions]
-                            },
-                        };
+                                                permissions:permissions],
+                    };
 
-                        Id::from_ptr(mutable_characteristic as *mut NSObject)
-                    }
+                    Id::from_ptr(mutable_characteristic as *mut NSObject)
                 }
-            )
+            })
             .collect();
 
         unsafe {
             let cls = class!(CBMutableService);
             let obj: *mut Object = msg_send![cls, alloc];
-            let service: *mut Object = msg_send![obj, initWithType:NSString::from_str(&primary_service.uuid.to_string())
+            let service: *mut Object = msg_send![obj, initWithType:NSString::from_str(&service.uuid.to_string())
                                                            primary:YES];
             msg_send![service, setValue:NSArray::from_vec(characteristics)
                                  forKey:NSString::from_str("characteristics")];
