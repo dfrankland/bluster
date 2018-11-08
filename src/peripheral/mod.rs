@@ -52,7 +52,7 @@ pub use usb::Peripheral;
 fn it_connects_changes_state() {
     use std::{thread, time};
 
-    let peripheral = Peripheral::new();
+    let mut peripheral = Peripheral::new();
 
     thread::sleep(time::Duration::from_secs(1));
 

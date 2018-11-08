@@ -1,222 +1,105 @@
+mod adapter;
+mod advertisement;
+mod characteristic;
+mod constants;
+mod descriptor;
+mod service;
+
+use adapter::Adapter;
+use advertisement::Advertisement;
+use crate::gatt;
 use dbus::{
-    arg::{RefArg, Variant},
-    stdintf::org_freedesktop_dbus::ObjectManager,
     tree::{Factory, MTFn},
-    BusType, Connection, Message, MessageItem, MessageItemArray, Path, Props, Signature,
+    BusType, Connection,
 };
-use std::{
-    borrow::Borrow,
-    boxed::Box,
-    collections::HashMap,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 use uuid::Uuid;
 
-const DBUS_PROP_IFACE: &str = "org.freedesktop.DBus.Properties";
-const BLUEZ_SERVICE_NAME: &str = "org.bluez";
-const ADAPTER_IFACE: &str = "org.bluez.Adapter1";
-const LE_ADVERTISING_MANAGER_IFACE: &str = "org.bluez.LEAdvertisingManager1";
-const LE_ADVERTISEMENT_IFACE: &str = "org.bluez.LEAdvertisement1";
-
-const PATH_BASE: &str = "/org/bluez/example/advertisement";
+use characteristic::Characteristic;
+use descriptor::Descriptor;
+use service::Service;
 
 #[derive(Debug)]
 pub struct Peripheral {
     connection: Connection,
-    adapter_object_path: String,
+    adapter: Adapter,
     factory: Factory<MTFn>,
-    advertisement_object_path: String,
+    advertisement: Option<Advertisement>,
     is_advertising: Arc<AtomicBool>,
 }
 
 impl Peripheral {
-    fn find_adapter(connection: &Connection) -> String {
-        let connection_path = connection.with_path(BLUEZ_SERVICE_NAME, "/", 5000);
-        let managed_objects = connection_path.get_managed_objects().unwrap();
-        for (path, props) in managed_objects.iter() {
-            if props.contains_key(LE_ADVERTISING_MANAGER_IFACE) {
-                return path.to_string();
-            }
-        }
-
-        panic!("LEAdvertisingManager1 interface not found");
-    }
-
     pub fn new() -> Self {
         let connection = Connection::get_private(BusType::System).unwrap();
-        let adapter_object_path = Peripheral::find_adapter(&connection);
-        let adapter_props = Props::new(
-            &connection,
-            BLUEZ_SERVICE_NAME,
-            &adapter_object_path,
-            ADAPTER_IFACE,
-            1000,
-        );
-
-        adapter_props
-            .set("Powered", MessageItem::Bool(true))
-            .unwrap();
+        let adapter = Adapter::new(&connection).unwrap();
+        adapter.powered_on(&connection, true).unwrap();
 
         Peripheral {
             connection,
-            adapter_object_path,
+            adapter,
             factory: Factory::new_fn::<()>(),
-            advertisement_object_path: format!("{}{}", PATH_BASE, 0),
+            advertisement: None,
             is_advertising: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn is_powered_on(self: &Self) -> bool {
-        let adapter_props = Props::new(
-            &self.connection,
-            BLUEZ_SERVICE_NAME,
-            &self.adapter_object_path,
-            ADAPTER_IFACE,
-            1000,
-        );
-        adapter_props
-            .get("Powered")
-            .unwrap()
-            .inner::<bool>()
-            .unwrap()
+        self.adapter.is_powered_on(&self.connection).unwrap()
     }
 
-    pub fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) {
-        let is_advertising = self.is_advertising.clone();
-        let name = Arc::new(name.to_string());
-        let uuids = Arc::new(
-            uuids
-                .to_vec()
-                .iter()
-                .map(|uuid| uuid.to_string())
-                .collect::<Vec<String>>(),
+    pub fn start_advertising(self: &mut Self, name: &str, uuids: &[Uuid]) {
+        let advertisement = Advertisement::new(
+            &self.factory,
+            self.adapter.clone(),
+            self.is_advertising.clone(),
+            Arc::new(name.to_string()),
+            Arc::new(
+                uuids
+                    .to_vec()
+                    .iter()
+                    .map(|uuid| uuid.to_string())
+                    .collect::<Vec<String>>(),
+            ),
         );
-
-        // Create advertisment object
-        let object_path = self
-            .factory
-            .object_path(self.advertisement_object_path.clone(), ())
-            .add(
-                self.factory
-                    .interface(LE_ADVERTISEMENT_IFACE, ())
-                    .add_m(self.factory.method("Release", (), move |method_info| {
-                        is_advertising.store(false, Ordering::Relaxed);
-                        Ok(vec![method_info.msg.method_return()])
-                    })),
-            )
-            .add(
-                self.factory.interface(DBUS_PROP_IFACE, ()).add_m(
-                    self.factory
-                        .method("GetAll", (), move |method_info| {
-                            let local_name = name.clone();
-                            let local_name: &String = local_name.borrow();
-
-                            let service_uuids = uuids.clone();
-                            let service_uuids: &Vec<String> = service_uuids.borrow();
-
-                            let mut props = HashMap::new();
-
-                            props.insert(
-                                "Type",
-                                Variant(MessageItem::Str("peripheral".to_string())),
-                            );
-                            props.insert(
-                                "LocalName",
-                                Variant(MessageItem::Str(local_name.to_string())),
-                            );
-
-                            if !service_uuids.is_empty() {
-                                props.insert(
-                                    "ServiceUUIDs",
-                                    Variant(MessageItem::Array(
-                                        MessageItemArray::new(
-                                            service_uuids
-                                                .iter()
-                                                .map(|x| MessageItem::Str(x.to_string()))
-                                                .collect::<Vec<MessageItem>>(),
-                                            Signature::make::<String>(),
-                                        )
-                                        .unwrap(),
-                                    )),
-                                );
-                            }
-
-                            Ok(vec![method_info.msg.method_return().append1(props)])
-                        })
-                        .in_arg(Signature::make::<String>())
-                        .out_arg(Signature::make::<HashMap<String, Variant<MessageItem>>>()),
-                ),
-            );
-
-        // Register advertisement object to DBus
-        let tree = self.factory.tree(()).add(object_path);
-        tree.set_registered(&self.connection, true).unwrap();
-        self.connection.add_handler(tree);
-
-        // Create message to register advertisement with Bluez
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter_object_path,
-            LE_ADVERTISING_MANAGER_IFACE,
-            "RegisterAdvertisement",
-        )
-        .unwrap()
-        .append2(
-            Path::new(self.advertisement_object_path.clone()).unwrap(),
-            HashMap::<String, Variant<Box<RefArg>>>::new(),
-        );
-
-        // Send message
-        let is_advertising = self.is_advertising.clone();
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        self.connection.add_handler(
-            self.connection
-                .send_with_reply(message, move |_| {
-                    is_advertising.store(true, Ordering::Relaxed);
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            self.connection.incoming(100).next();
-        }
+        advertisement.register(&self.connection).unwrap();
+        self.advertisement = Some(advertisement);
     }
 
-    pub fn stop_advertising(self: &Self) {
-        // Create message to ungregister advertisement with Bluez
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter_object_path,
-            LE_ADVERTISING_MANAGER_IFACE,
-            "UnregisterAdvertisement",
-        )
-        .unwrap()
-        .append1(Path::new(self.advertisement_object_path.clone()).unwrap());
-
-        // Send message
-        let is_advertising = self.is_advertising.clone();
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        self.connection.add_handler(
-            self.connection
-                .send_with_reply(message, move |_| {
-                    is_advertising.store(false, Ordering::Relaxed);
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            self.connection.incoming(100).next();
-        }
+    pub fn stop_advertising(self: &mut Self) {
+        self.advertisement
+            .as_ref()
+            .unwrap()
+            .unregister(&self.connection);
+        self.advertisement = None;
     }
 
     pub fn is_advertising(self: &Self) -> bool {
         let is_advertising = self.is_advertising.clone();
         is_advertising.load(Ordering::Relaxed)
+    }
+
+    pub fn add_service(self: &Self, service: &gatt::service::Service) {
+        let gatt_service = Service::new(&self.factory, &Arc::new(service.clone()));
+        gatt_service.register(&self.connection).unwrap();
+        for characteristic in service.characteristics.iter() {
+            let gatt_characteristic = Characteristic::new(
+                &self.factory,
+                &Arc::new(characteristic.clone()),
+                gatt_service.object_path.clone(),
+            );
+            gatt_characteristic.register(&self.connection).unwrap();
+            for descriptor in characteristic.descriptors.iter() {
+                let gatt_descriptor = Descriptor::new(
+                    &self.factory,
+                    &Arc::new(descriptor.clone()),
+                    gatt_characteristic.object_path.clone(),
+                );
+                gatt_descriptor.register(&self.connection).unwrap();
+            }
+        }
     }
 }
 
