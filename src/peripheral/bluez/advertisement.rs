@@ -1,7 +1,7 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{Factory, MTFn, Tree},
-    Connection, Message, MessageItem, MessageItemArray, Path, Signature,
+    tree::{Access, Factory, MTFn, Tree},
+    Connection, Message, Path,
 };
 use std::{
     collections::HashMap,
@@ -14,8 +14,7 @@ use std::{
 use super::{
     adapter::Adapter,
     constants::{
-        BLUEZ_SERVICE_NAME, DBUS_PROP_IFACE, LE_ADVERTISEMENT_IFACE, LE_ADVERTISING_MANAGER_IFACE,
-        PATH_BASE,
+        BLUEZ_SERVICE_NAME, LE_ADVERTISEMENT_IFACE, LE_ADVERTISING_MANAGER_IFACE, PATH_BASE,
     },
 };
 
@@ -35,56 +34,48 @@ impl Advertisement {
         name: Arc<String>,
         uuids: Arc<Vec<String>>,
     ) -> Self {
-        let mut object_path =
-            factory.object_path(format!("{}/advertisement{:04}", PATH_BASE, 0), ());
-
         let is_advertising_release = is_advertising.clone();
-        let release = factory
+        let mut advertisement = factory
             .interface(LE_ADVERTISEMENT_IFACE, ())
             .add_m(factory.method("Release", (), move |method_info| {
                 is_advertising_release.store(false, Ordering::Relaxed);
                 Ok(vec![method_info.msg.method_return()])
-            }));
-        object_path = object_path.add(release);
+            }))
+            .add_p(
+                factory
+                    .property::<&str, _>("Type", ())
+                    .access(Access::Read)
+                    .on_get(|i, _| {
+                        i.append("peripheral");
+                        Ok(())
+                    }),
+            )
+            .add_p(
+                factory
+                    .property::<&str, _>("LocalName", ())
+                    .access(Access::Read)
+                    .on_get(move |i, _| {
+                        i.append(&*(name.clone()));
+                        Ok(())
+                    }),
+            );
 
-        let get_all = factory.interface(DBUS_PROP_IFACE, ()).add_m(
-            factory
-                .method("GetAll", (), move |method_info| {
-                    let mut props = HashMap::new();
+        if !uuids.is_empty() {
+            advertisement = advertisement.add_p(
+                factory
+                    .property::<&[&str], _>("ServiceUUIDs", ())
+                    .access(Access::Read)
+                    .on_get(move |i, _| {
+                        i.append(&*(uuids.clone()));
+                        Ok(())
+                    }),
+            );
+        }
 
-                    let (local_name, service_uuids) =
-                        (name.clone().to_owned(), uuids.clone().to_owned());
-
-                    props.insert("Type", Variant(MessageItem::Str("peripheral".to_string())));
-                    props.insert(
-                        "LocalName",
-                        Variant(MessageItem::Str(local_name.to_string())),
-                    );
-                    if !service_uuids.is_empty() {
-                        props.insert(
-                            "ServiceUUIDs",
-                            Variant(MessageItem::Array(
-                                MessageItemArray::new(
-                                    service_uuids
-                                        .iter()
-                                        .map(|x| MessageItem::Str(x.to_string()))
-                                        .collect::<Vec<MessageItem>>(),
-                                    Signature::make::<String>(),
-                                )
-                                .unwrap(),
-                            )),
-                        );
-                    }
-
-                    Ok(vec![method_info.msg.method_return().append1(props)])
-                })
-                .in_arg(Signature::make::<String>())
-                .out_arg(Signature::make::<HashMap<String, Variant<MessageItem>>>()),
-        );
-        object_path = object_path.add(get_all);
-
+        let object_path = factory
+            .object_path(format!("{}/advertisement{:04}", PATH_BASE, 0), ())
+            .add(advertisement);
         let path = object_path.get_name().clone();
-
         let tree = Arc::new(factory.tree(()).add(object_path));
 
         Advertisement {
