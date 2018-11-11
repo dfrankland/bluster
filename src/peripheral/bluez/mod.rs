@@ -88,7 +88,7 @@ impl Peripheral {
             let gatt_characteristic = Characteristic::new(
                 &self.factory,
                 &Arc::new(characteristic.clone()),
-                gatt_service.object_path.clone(),
+                &Arc::new(gatt_service.object_path.clone()),
             );
             gatt_characteristic.register(&self.connection).unwrap();
             for descriptor in characteristic.descriptors.iter() {
