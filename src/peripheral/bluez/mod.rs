@@ -95,7 +95,7 @@ impl Peripheral {
                 let gatt_descriptor = Descriptor::new(
                     &self.factory,
                     &Arc::new(descriptor.clone()),
-                    gatt_characteristic.object_path.clone(),
+                    &Arc::new(gatt_characteristic.object_path.clone()),
                 );
                 gatt_descriptor.register(&self.connection).unwrap();
             }
