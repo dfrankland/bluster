@@ -32,7 +32,7 @@ impl Service {
         );
 
         let object_path = factory
-            .object_path(format!("{}/advertisement{:04}", PATH_BASE, 0), ())
+            .object_path(format!("{}/service{:04}", PATH_BASE, 0), ())
             .add(get_all);
 
         let path = object_path.get_name().clone();
