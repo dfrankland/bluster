@@ -3,7 +3,7 @@ use crate::gatt;
 use dbus::{
     arg::{RefArg, Variant},
     tree::{Access, Factory, MTFn, Tree},
-    Connection, MessageItem, Path,
+    MessageItem, Path,
 };
 use futures::{channel::oneshot::channel, executor::block_on};
 use std::{collections::HashMap, sync::Arc};
@@ -11,15 +11,15 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct Descriptor {
     pub object_path: Path<'static>,
-    tree: Arc<Tree<MTFn, ()>>,
 }
 
 impl Descriptor {
     pub fn new(
         factory: &Factory<MTFn>,
+        tree: &mut Tree<MTFn, ()>,
         descriptor: &Arc<gatt::descriptor::Descriptor>,
         characteristic: &Arc<Path<'static>>,
-    ) -> Self {
+    ) -> Result<Self, dbus::Error> {
         let descriptor_read_value = descriptor.clone();
         let descriptor_write_value = descriptor.clone();
         let descriptor_uuid = descriptor.clone();
@@ -157,25 +157,14 @@ impl Descriptor {
                 format!("{}/descriptor{:04}", characteristic.to_string(), 0),
                 (),
             )
-            .add(gatt_descriptor);
+            .add(gatt_descriptor)
+            .introspectable()
+            .object_manager();
 
         let path = object_path.get_name().clone();
-        let tree = Arc::new(factory.tree(()).add(object_path));
 
-        Descriptor {
-            object_path: path,
-            tree,
-        }
-    }
+        tree.insert(object_path);
 
-    pub fn register(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.register_with_dbus(connection)?;
-        Ok(())
-    }
-
-    fn register_with_dbus(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.tree.set_registered(connection, true)?;
-        connection.add_handler(self.tree.clone());
-        Ok(())
+        Ok(Descriptor { object_path: path })
     }
 }

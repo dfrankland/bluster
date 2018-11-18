@@ -3,7 +3,7 @@ use crate::gatt;
 use dbus::{
     arg::{RefArg, Variant},
     tree::{Access, Factory, MTFn, Tree},
-    Connection, MessageItem, Path,
+    MessageItem, Path,
 };
 use futures::{channel::oneshot::channel, executor::block_on};
 use std::{collections::HashMap, sync::Arc};
@@ -11,15 +11,15 @@ use std::{collections::HashMap, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct Characteristic {
     pub object_path: Path<'static>,
-    tree: Arc<Tree<MTFn, ()>>,
 }
 
 impl Characteristic {
     pub fn new(
         factory: &Factory<MTFn>,
+        tree: &mut Tree<MTFn, ()>,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Arc<Path<'static>>,
-    ) -> Self {
+    ) -> Result<Self, dbus::Error> {
         let characteristic_read_value = characteristic.clone();
         let characteristic_write_value = characteristic.clone();
         let characteristic_uuid = characteristic.clone();
@@ -36,10 +36,14 @@ impl Characteristic {
                         offset: method_info
                             .msg
                             .get1::<HashMap<String, Variant<MessageItem>>>()
-                            .unwrap()["offset"]
-                            .clone()
-                            .as_u64()
-                            .unwrap() as u16,
+                            .unwrap()
+                            .get("offset")
+                            .and_then(|offset| {
+                                offset
+                                    .clone()
+                                    .as_u64()
+                            })
+                            .unwrap_or(0) as u16,
                         response: sender,
                     });
                     event_sender
@@ -162,25 +166,14 @@ impl Characteristic {
                 format!("{}/characteristic{:04}", service.to_string(), 0),
                 (),
             )
-            .add(gatt_characteristic);
+            .add(gatt_characteristic)
+            .introspectable()
+            .object_manager();
 
         let path = object_path.get_name().clone();
-        let tree = Arc::new(factory.tree(()).add(object_path));
 
-        Characteristic {
-            object_path: path,
-            tree,
-        }
-    }
+        tree.insert(object_path);
 
-    pub fn register(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.register_with_dbus(connection)?;
-        Ok(())
-    }
-
-    fn register_with_dbus(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.tree.set_registered(connection, true)?;
-        connection.add_handler(self.tree.clone());
-        Ok(())
+        Ok(Characteristic { object_path: path })
     }
 }
