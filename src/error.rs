@@ -1,4 +1,4 @@
-use std::{fmt, error};
+use std::{error, fmt};
 
 #[derive(Debug, Clone)]
 pub enum ErrorType {
@@ -8,7 +8,7 @@ pub enum ErrorType {
 }
 
 impl From<ErrorType> for &'static str {
-    fn from(error_type: ErrorType) ->  &'static str {
+    fn from(error_type: ErrorType) -> &'static str {
         match error_type {
             ErrorType::Bluez => "Bluez",
             ErrorType::CoreBluetooth => "CoreBluetooth",
@@ -54,9 +54,7 @@ impl fmt::Display for Error {
         write!(
             f,
             "**Bluster {} Error**\n\n\t{}:\n\t\t{}",
-            error_type,
-            self.name,
-            self.description,
+            error_type, self.name, self.description,
         )
     }
 }

@@ -51,7 +51,6 @@ pub use usb::Peripheral;
 #[test]
 fn it_connects_changes_state() -> Result<(), crate::Error> {
     use crate::{
-        SdpShortUuid,
         gatt::{
             characteristic,
             characteristic::Characteristic,
@@ -59,6 +58,7 @@ fn it_connects_changes_state() -> Result<(), crate::Error> {
             event::{Event, Response},
             service::Service,
         },
+        SdpShortUuid,
     };
     use futures::channel::mpsc::channel;
     use std::{collections::HashSet, thread, time};
@@ -84,7 +84,13 @@ fn it_connects_changes_state() -> Result<(), crate::Error> {
         ));
 
         let mut peripheral = Peripheral::new().unwrap();
-        peripheral.add_service(&Service::new(Uuid::from_sdp_short_uuid(0x1234 as u16), true, characteristics)).unwrap();
+        peripheral
+            .add_service(&Service::new(
+                Uuid::from_sdp_short_uuid(0x1234 as u16),
+                true,
+                characteristics,
+            ))
+            .unwrap();
 
         while !peripheral.is_powered_on().unwrap() {}
 
@@ -111,7 +117,10 @@ fn it_connects_changes_state() -> Result<(), crate::Error> {
             if let Some(event) = result {
                 match event {
                     Event::ReadRequest(read_request) => {
-                        println!("GATT server got a read request with offset {}!", read_request.offset);
+                        println!(
+                            "GATT server got a read request with offset {}!",
+                            read_request.offset
+                        );
                         read_request
                             .response
                             .send(Response::Success("hi".into()))

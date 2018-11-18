@@ -13,8 +13,8 @@ impl SdpShortUuid<u32> for Uuid {}
 
 #[test]
 fn test_from_sdp_short_uuid() {
-    use uuid::Uuid;
     use super::SdpShortUuid;
+    use uuid::Uuid;
 
     Uuid::from_sdp_short_uuid(0x0000 as u16);
     Uuid::from_sdp_short_uuid(0x0000 as u32);

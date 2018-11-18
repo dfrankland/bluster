@@ -31,7 +31,10 @@ impl Application {
 
         tree.insert(object_path);
 
-        Ok(Application { object_path: path, adapter })
+        Ok(Application {
+            object_path: path,
+            adapter,
+        })
     }
 
     pub fn register(self: &Self, connection: &Connection) {

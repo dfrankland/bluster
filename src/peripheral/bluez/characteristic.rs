@@ -38,11 +38,7 @@ impl Characteristic {
                             .get1::<HashMap<String, Variant<MessageItem>>>()
                             .unwrap()
                             .get("offset")
-                            .and_then(|offset| {
-                                offset
-                                    .clone()
-                                    .as_u64()
-                            })
+                            .and_then(|offset| offset.clone().as_u64())
                             .unwrap_or(0) as u16,
                         response: sender,
                     });

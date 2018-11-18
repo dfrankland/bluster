@@ -8,9 +8,8 @@ mod error;
 mod service;
 
 use dbus::{
-    ConnectionItems,
     tree::{Factory, MTFn, Tree},
-    BusType, Connection,
+    BusType, Connection, ConnectionItems,
 };
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -46,32 +45,38 @@ impl Peripheral {
 
         let factory = Factory::new_fn::<()>();
 
-        Ok(
-            Peripheral {
-                connection,
-                adapter,
-                tree: Some(factory.tree(())),
-                factory,
-                application: None,
-                advertisement: None,
-                is_advertising: Arc::new(AtomicBool::new(false)),
-            }
-        )
+        Ok(Peripheral {
+            connection,
+            adapter,
+            tree: Some(factory.tree(())),
+            factory,
+            application: None,
+            advertisement: None,
+            is_advertising: Arc::new(AtomicBool::new(false)),
+        })
     }
 
     pub fn is_powered_on(self: &Self) -> Result<bool, Error> {
         Ok(self.adapter.is_powered_on(&self.connection)?)
     }
 
-    pub fn start_advertising(self: &mut Self, name: &str, uuids: &[Uuid]) -> Result<ConnectionItems, Error> {
+    pub fn start_advertising(
+        self: &mut Self,
+        name: &str,
+        uuids: &[Uuid],
+    ) -> Result<ConnectionItems, Error> {
         let application = Application::new(
             &self.factory,
             self.tree.as_mut().unwrap(),
             self.adapter.clone(),
         )?;
 
-        self.tree.as_ref().unwrap().set_registered(&self.connection, true)?;
-        self.connection.add_handler(Arc::new(self.tree.take().unwrap()));
+        self.tree
+            .as_ref()
+            .unwrap()
+            .set_registered(&self.connection, true)?;
+        self.connection
+            .add_handler(Arc::new(self.tree.take().unwrap()));
 
         application.register(&self.connection);
         self.application.replace(application);

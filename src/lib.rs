@@ -1,10 +1,10 @@
 #![feature(uniform_paths)]
 
+mod error;
 pub mod gatt;
 mod peripheral;
-mod error;
 mod uuid;
 
-pub use peripheral::Peripheral;
-pub use error::*;
 pub use self::uuid::*;
+pub use error::*;
+pub use peripheral::Peripheral;
