@@ -5,7 +5,7 @@ use dbus::{
     tree::{Access, Factory, MTFn, Tree},
     MessageItem, Path,
 };
-use futures::{channel::oneshot::channel, executor::block_on};
+use futures::{sync::oneshot::channel, future::Future};
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Clone)]
@@ -47,7 +47,7 @@ impl Characteristic {
                         .sender()
                         .try_send(read_request)
                         .unwrap();
-                    return match block_on(receiver) {
+                    return match receiver.wait() {
                         Ok(response) => match response {
                             gatt::event::Response::Success(value) => {
                                 Ok(vec![method_info.msg.method_return().append1(value)])
@@ -78,7 +78,7 @@ impl Characteristic {
                         .sender()
                         .try_send(write_request)
                         .unwrap();
-                    return match block_on(receiver) {
+                    return match receiver.wait() {
                         Ok(response) => match response {
                             gatt::event::Response::Success(value) => {
                                 Ok(vec![method_info.msg.method_return().append1(value)])

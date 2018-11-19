@@ -60,14 +60,15 @@ fn it_connects_changes_state() -> Result<(), crate::Error> {
         },
         SdpShortUuid,
     };
-    use futures::channel::mpsc::channel;
+    use futures::{sync::mpsc::channel, executor::spawn};
     use std::{collections::HashSet, thread, time};
     use uuid::Uuid;
 
     const ITERATIONS: u64 = 60;
     const SLEEP_SECS: u64 = 1;
 
-    let (sender, mut receiver) = channel(1);
+    let (sender, r) = channel(1);
+    let mut receiver = spawn(r);
 
     thread::spawn(move || {
         let mut characteristics: HashSet<Characteristic> = HashSet::new();
@@ -113,8 +114,8 @@ fn it_connects_changes_state() -> Result<(), crate::Error> {
     });
 
     for _ in 0..ITERATIONS {
-        if let Ok(result) = receiver.try_next() {
-            if let Some(event) = result {
+        if let Some(result) = receiver.wait_stream() {
+            if let Ok(event) = result {
                 match event {
                     Event::ReadRequest(read_request) => {
                         println!(

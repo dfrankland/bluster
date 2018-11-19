@@ -199,7 +199,7 @@ pub mod descriptor {
 }
 
 pub mod event {
-    use futures::channel::{mpsc, oneshot};
+    use futures::sync::{mpsc, oneshot};
 
     pub type EventSender = mpsc::Sender<Event>;
     pub type ResponseSender = oneshot::Sender<Response>;

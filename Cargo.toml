@@ -5,7 +5,7 @@ authors = ["Dylan Frankland <github@frankland.io>"]
 edition = "2018"
 
 [dependencies]
-futures-preview = "0.2.2"
+futures = "0.1.25"
 uuid = "0.7.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
