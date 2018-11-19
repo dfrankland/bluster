@@ -5,7 +5,7 @@ use dbus::{
     tree::{Access, Factory, MTFn, Tree},
     MessageItem, Path,
 };
-use futures::{sync::oneshot::channel, future::Future};
+use futures::{future::Future, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Debug, Clone)]
