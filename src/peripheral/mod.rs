@@ -47,31 +47,3 @@ pub use usb::Peripheral;
 //     rssi: u8,
 //     mtu: u8,
 // }
-
-#[test]
-fn it_connects_changes_state() {
-    use std::{thread, time};
-
-    let mut peripheral = Peripheral::new();
-
-    thread::sleep(time::Duration::from_secs(1));
-
-    if peripheral.is_powered_on() {
-        println!("It's powered on!");
-    } else {
-        println!("It's powered off!");
-    }
-
-    peripheral.start_advertising("hello", &[]);
-    for _ in 0..60 {
-        println!("Advertising {:?}", peripheral.is_advertising());
-        thread::sleep(time::Duration::from_secs(1));
-    }
-
-    peripheral.stop_advertising();
-
-    for _ in 0..10 {
-        println!("Advertising {:?}", peripheral.is_advertising());
-        thread::sleep(time::Duration::from_secs(1));
-    }
-}
