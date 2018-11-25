@@ -1,45 +1,51 @@
-use super::constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE};
-use crate::gatt;
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{Access, Factory, MTFn, Tree},
+    tree::Access,
     MessageItem, Path,
 };
+use dbus_tokio::tree::AFactory;
 use futures::{future::Future, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
+use super::super::{
+    common,
+    constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
+};
+use crate::gatt;
+
 #[derive(Debug, Clone)]
-pub struct Characteristic {
+pub struct Descriptor {
     pub object_path: Path<'static>,
 }
 
-impl Characteristic {
+impl Descriptor {
     pub fn new(
-        factory: &Factory<MTFn>,
-        tree: &mut Tree<MTFn, ()>,
-        characteristic: &Arc<gatt::characteristic::Characteristic>,
-        service: &Arc<Path<'static>>,
+        tree: &mut common::Tree,
+        descriptor: &Arc<gatt::descriptor::Descriptor>,
+        characteristic: &Arc<Path<'static>>,
     ) -> Result<Self, dbus::Error> {
-        let characteristic_read_value = characteristic.clone();
-        let characteristic_write_value = characteristic.clone();
-        let characteristic_uuid = characteristic.clone();
-        let characteristic_service = service.clone();
-        let characteristic_flags = characteristic.clone();
-        let characteristic_value = characteristic.clone();
+        let factory = AFactory::new_afn::<()>();
 
-        let mut gatt_characteristic = factory
-            .interface(GATT_CHARACTERISTIC_IFACE, ())
+        let descriptor_read_value = descriptor.clone();
+        let descriptor_write_value = descriptor.clone();
+        let descriptor_uuid = descriptor.clone();
+        let descriptor_characteristic = characteristic.clone();
+        let descriptor_flags = descriptor.clone();
+        let descriptor_value = descriptor.clone();
+
+        let mut gatt_descriptor = factory
+            .interface(GATT_DESCRIPTOR_IFACE, ())
             .add_m(factory.method("ReadValue", (), move |method_info| {
-                if let Some(event_sender) = &(*characteristic_read_value).properties.read {
+                if let Some(ref event_sender) = &(*descriptor_read_value).properties.read {
                     let (sender, receiver) = channel();
                     let read_request = gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
                         offset: method_info
                             .msg
                             .get1::<HashMap<String, Variant<MessageItem>>>()
-                            .unwrap()
-                            .get("offset")
-                            .and_then(|offset| offset.clone().as_u64())
-                            .unwrap_or(0) as u16,
+                            .unwrap()["offset"]
+                            .clone()
+                            .as_u64()
+                            .unwrap() as u16,
                         response: sender,
                     });
                     event_sender
@@ -61,7 +67,7 @@ impl Characteristic {
                 Err((BLUEZ_ERROR_NOTSUPPORTED, "").into())
             }))
             .add_m(factory.method("WriteValue", (), move |method_info| {
-                if let Some(event_sender) = &(*characteristic_write_value).properties.write {
+                if let Some(ref event_sender) = &(*descriptor_write_value).properties.write {
                     let (sender, receiver) = channel();
                     let (data, flags) = method_info
                         .msg
@@ -96,16 +102,16 @@ impl Characteristic {
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*characteristic_uuid).uuid.to_string());
+                        i.append((*descriptor_uuid).uuid.to_string());
                         Ok(())
                     }),
             )
             .add_p(
                 factory
-                    .property::<Path<'static>, _>("Service", ())
+                    .property::<Path<'static>, _>("Characteristic", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&*characteristic_service);
+                        i.append(&*descriptor_characteristic);
                         Ok(())
                     }),
             )
@@ -114,28 +120,23 @@ impl Characteristic {
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        let gatt::characteristic::Properties { read, write, .. } =
-                            &(*characteristic_flags).properties;
+                        let gatt::descriptor::Properties { read, write, .. } =
+                            &(*descriptor_flags).properties;
 
                         let mut flags = vec![];
 
                         if let Some(read) = read {
                             let read_flag = match read {
-                                gatt::characteristic::Secure::Secure(_) => "secure-read",
-                                gatt::characteristic::Secure::Insecure(_) => "read",
+                                gatt::descriptor::Secure::Secure(_) => "secure-read",
+                                gatt::descriptor::Secure::Insecure(_) => "read",
                             };
                             flags.push(read_flag);
                         }
 
                         if let Some(write) = write {
                             let write_flag = match write {
-                                gatt::characteristic::Write::WithResponse(secure) => match secure {
-                                    gatt::characteristic::Secure::Secure(_) => "secure-write",
-                                    gatt::characteristic::Secure::Insecure(_) => "write",
-                                },
-                                gatt::characteristic::Write::WithoutResponse(_) => {
-                                    "write-without-response"
-                                }
+                                gatt::descriptor::Secure::Secure(_) => "secure-read",
+                                gatt::descriptor::Secure::Insecure(_) => "read",
                             };
                             flags.push(write_flag);
                         }
@@ -145,13 +146,13 @@ impl Characteristic {
                     }),
             );
 
-        if characteristic.properties.is_read_only() && characteristic.value.is_some() {
-            gatt_characteristic = gatt_characteristic.add_p(
+        if descriptor.properties.is_read_only() && descriptor.value.is_some() {
+            gatt_descriptor = gatt_descriptor.add_p(
                 factory
                     .property::<&[u8], _>("Value", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*characteristic_value).value.as_ref().unwrap());
+                        i.append((*descriptor_value).value.as_ref().unwrap());
                         Ok(())
                     }),
             );
@@ -159,10 +160,10 @@ impl Characteristic {
 
         let object_path = factory
             .object_path(
-                format!("{}/characteristic{:04}", service.to_string(), 0),
+                format!("{}/descriptor{:04}", characteristic.to_string(), 0),
                 (),
             )
-            .add(gatt_characteristic)
+            .add(gatt_descriptor)
             .introspectable()
             .object_manager();
 
@@ -170,6 +171,6 @@ impl Characteristic {
 
         tree.insert(object_path);
 
-        Ok(Characteristic { object_path: path })
+        Ok(Descriptor { object_path: path })
     }
 }

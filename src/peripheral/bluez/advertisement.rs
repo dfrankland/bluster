@@ -1,41 +1,51 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{Access, Factory, MTFn, Tree},
-    Connection, Message, Path,
+    tree::Access,
+    ConnectionItems, Message, Path,
 };
+use dbus_tokio::tree::{AFactory, ATree};
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
 };
 
 use super::{
-    adapter::Adapter,
+    common,
+    connection::Connection,
     constants::{
         BLUEZ_SERVICE_NAME, LE_ADVERTISEMENT_IFACE, LE_ADVERTISING_MANAGER_IFACE, PATH_BASE,
     },
 };
+use crate::Error;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Advertisement {
+    connection: Arc<Connection>,
+    adapter: Path<'static>,
     pub object_path: Path<'static>,
-    tree: Arc<Tree<MTFn, ()>>,
+    tree: Option<common::Tree>,
     is_advertising: Arc<AtomicBool>,
-    adapter: Adapter,
+    name: Arc<Mutex<Option<String>>>,
+    uuids: Arc<Mutex<Option<Vec<String>>>>,
 }
 
 impl Advertisement {
-    pub fn new(
-        factory: &Factory<MTFn>,
-        adapter: Adapter,
-        is_advertising: Arc<AtomicBool>,
-        name: Arc<String>,
-        uuids: Arc<Vec<String>>,
-    ) -> Self {
+    pub fn new(connection: Arc<Connection>, adapter: Path<'static>) -> Self {
+        let factory = AFactory::new_afn::<()>();
+
+        let is_advertising = Arc::new(AtomicBool::new(false));
         let is_advertising_release = is_advertising.clone();
-        let mut advertisement = factory
+
+        let name = Arc::new(Mutex::new(None));
+        let name_property = name.clone();
+
+        let uuids = Arc::new(Mutex::new(None));
+        let uuids_property = uuids.clone();
+
+        let advertisement = factory
             .interface(LE_ADVERTISEMENT_IFACE, ())
             .add_m(factory.method("Release", (), move |method_info| {
                 is_advertising_release.store(false, Ordering::Relaxed);
@@ -55,54 +65,75 @@ impl Advertisement {
                     .property::<&str, _>("LocalName", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&*(name.clone()));
+                        if let Ok(guard) = name_property.lock() {
+                            if let Some(local_name) = guard.clone() {
+                                i.append(local_name);
+                            }
+                        }
                         Ok(())
                     }),
-            );
-
-        if !uuids.is_empty() {
-            advertisement = advertisement.add_p(
+            )
+            .add_p(
                 factory
                     .property::<&[&str], _>("ServiceUUIDs", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&*(uuids.clone()));
+                        if let Ok(guard) = uuids_property.lock() {
+                            if let Some(service_uuids) = guard.clone() {
+                                i.append(service_uuids);
+                            }
+                        }
                         Ok(())
                     }),
             );
-        }
 
         let object_path = factory
             .object_path(format!("{}/advertisement{:04}", PATH_BASE, 0), ())
             .add(advertisement);
         let path = object_path.get_name().clone();
-        let tree = Arc::new(factory.tree(()).add(object_path));
+        let tree = factory.tree(ATree::new()).add(object_path);
 
         Advertisement {
-            object_path: path,
-            tree,
-            is_advertising,
+            connection,
             adapter,
+            object_path: path,
+            tree: Some(tree),
+            is_advertising,
+            name,
+            uuids,
         }
     }
 
-    pub fn register(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.register_with_dbus(connection)?;
-        self.register_with_bluez(connection);
+    pub fn add_name<T: Into<String>>(self: &mut Self, name: T) {
+        self.name.lock().unwrap().replace(name.into());
+    }
+
+    pub fn add_uuids<T: Into<Vec<String>>>(self: &mut Self, uuids: T) {
+        self.uuids.lock().unwrap().replace(uuids.into());
+    }
+
+    pub fn register(self: &mut Self) -> Result<ConnectionItems, Error> {
+        self.register_with_dbus()?;
+        self.register_with_bluez();
+        Ok(self.connection.fallback.iter(1000))
+    }
+
+    fn register_with_dbus(self: &mut Self) -> Result<(), dbus::Error> {
+        self.tree
+            .as_mut()
+            .unwrap()
+            .set_registered(&self.connection.fallback, true)?;
+        self.connection
+            .fallback
+            .add_handler(Arc::new(self.tree.take().unwrap()));
         Ok(())
     }
 
-    fn register_with_dbus(self: &Self, connection: &Connection) -> Result<(), dbus::Error> {
-        self.tree.set_registered(connection, true)?;
-        connection.add_handler(self.tree.clone());
-        Ok(())
-    }
-
-    fn register_with_bluez(self: &Self, connection: &Connection) {
+    fn register_with_bluez(self: &Self) {
         // Create message to register advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
-            &self.adapter.object_path,
+            &self.adapter,
             LE_ADVERTISING_MANAGER_IFACE,
             "RegisterAdvertisement",
         )
@@ -116,8 +147,9 @@ impl Advertisement {
         let is_advertising = self.is_advertising.clone();
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
         let done2 = done.clone();
-        connection.add_handler(
-            connection
+        self.connection.fallback.add_handler(
+            self.connection
+                .fallback
                 .send_with_reply(message, move |_| {
                     is_advertising.store(true, Ordering::Relaxed);
                     done2.set(true);
@@ -125,15 +157,15 @@ impl Advertisement {
                 .unwrap(),
         );
         while !done.get() {
-            connection.incoming(100).next();
+            self.connection.fallback.incoming(100).next();
         }
     }
 
-    pub fn unregister(self: &Self, connection: &Connection) {
+    pub fn unregister(self: &Self) -> Result<(), Error> {
         // Create message to ungregister advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
-            &self.adapter.object_path,
+            &self.adapter,
             LE_ADVERTISING_MANAGER_IFACE,
             "UnregisterAdvertisement",
         )
@@ -144,8 +176,9 @@ impl Advertisement {
         let is_advertising = self.is_advertising.clone();
         let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
         let done2 = done.clone();
-        connection.add_handler(
-            connection
+        self.connection.fallback.add_handler(
+            self.connection
+                .fallback
                 .send_with_reply(message, move |_| {
                     is_advertising.store(false, Ordering::Relaxed);
                     done2.set(true);
@@ -153,7 +186,14 @@ impl Advertisement {
                 .unwrap(),
         );
         while !done.get() {
-            connection.incoming(100).next();
+            self.connection.fallback.incoming(100).next();
         }
+
+        Ok(())
+    }
+
+    pub fn is_advertising(self: &Self) -> Result<bool, Error> {
+        let is_advertising = self.is_advertising.clone();
+        Ok(is_advertising.load(Ordering::Relaxed))
     }
 }
