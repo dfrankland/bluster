@@ -1,4 +1,5 @@
 use dbus::{stdintf::org_freedesktop_dbus::ObjectManager, MessageItem, Path, Props};
+use futures::{future::poll_fn, prelude::*, Async};
 use std::sync::Arc;
 
 use super::{
@@ -45,15 +46,28 @@ impl Adapter {
         .set("Powered", MessageItem::Bool(on))
     }
 
-    pub fn is_powered_on(self: &Self) -> Result<bool, Error> {
-        let props = Props::new(
-            &self.connection.fallback,
-            BLUEZ_SERVICE_NAME,
-            &self.object_path,
-            ADAPTER_IFACE,
-            1000,
-        );
-        let powered = props.get("Powered")?;
-        Ok(powered.inner::<bool>().unwrap())
+    pub fn is_powered_on(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+        let connection = self.connection.clone();
+        let object_path = self.object_path.clone();
+
+        let powered_on = poll_fn(move || -> Result<Async<()>, Error> {
+            let props = Props::new(
+                &connection.fallback,
+                BLUEZ_SERVICE_NAME,
+                &object_path,
+                ADAPTER_IFACE,
+                1000,
+            );
+
+            let message_item = props.get("Powered")?;
+            let powered = message_item.inner::<bool>();
+            if powered.is_ok() && powered.unwrap() {
+                Ok(Async::Ready(()))
+            } else {
+                Ok(Async::NotReady)
+            }
+        });
+
+        Box::new(powered_on)
     }
 }

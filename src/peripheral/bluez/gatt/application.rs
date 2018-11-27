@@ -1,21 +1,27 @@
 use dbus::{
     arg::{RefArg, Variant},
     tree::{MTFn, Tree},
-    Connection, Message, Path,
+    Message, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use std::collections::HashMap;
+use futures::prelude::*;
+use std::{collections::HashMap, sync::Arc};
 
-use super::super::constants::{BLUEZ_SERVICE_NAME, GATT_GATT_MANAGER_IFACE, PATH_BASE};
+use super::super::{
+    constants::{BLUEZ_SERVICE_NAME, GATT_GATT_MANAGER_IFACE, PATH_BASE},
+    Connection,
+};
 
 #[derive(Debug, Clone)]
 pub struct Application {
+    connection: Arc<Connection>,
     pub object_path: Path<'static>,
     adapter: Path<'static>,
 }
 
 impl Application {
     pub fn new(
+        connection: Arc<Connection>,
         tree: &mut Tree<MTFn<ATree<()>>, ATree<()>>,
         adapter: Path<'static>,
     ) -> Result<Self, dbus::Error> {
@@ -31,13 +37,13 @@ impl Application {
         tree.insert(object_path);
 
         Ok(Application {
+            connection,
             object_path: path,
             adapter,
         })
     }
 
-    pub fn register(self: &Self, connection: &Connection) {
-        // Create message to register GATT with Bluez
+    pub fn register(self: &Self) -> Box<impl Future<Item = Message, Error = dbus::Error>> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -50,23 +56,10 @@ impl Application {
             HashMap::<String, Variant<Box<RefArg>>>::new(),
         );
 
-        // Send message
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        connection.add_handler(
-            connection
-                .send_with_reply(message, move |_| {
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            connection.incoming(100).next();
-        }
+        Box::new(self.connection.default.method_call(message).unwrap())
     }
 
-    pub fn unregister(self: &Self, connection: &Connection) {
-        // Create message to ungregister GATT with Bluez
+    pub fn unregister(self: &Self) -> Box<impl Future<Item = Message, Error = dbus::Error>> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -75,19 +68,6 @@ impl Application {
         )
         .unwrap()
         .append1(&self.object_path);
-
-        // Send message
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        connection.add_handler(
-            connection
-                .send_with_reply(message, move |_| {
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            connection.incoming(100).next();
-        }
+        Box::new(self.connection.default.method_call(message).unwrap())
     }
 }

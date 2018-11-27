@@ -1,9 +1,10 @@
 use dbus::{
     arg::{RefArg, Variant},
     tree::Access,
-    ConnectionItems, Message, Path,
+    Message, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
+use futures::prelude::*;
 use std::{
     collections::HashMap,
     sync::{
@@ -21,12 +22,12 @@ use super::{
 };
 use crate::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Advertisement {
     connection: Arc<Connection>,
     adapter: Path<'static>,
     pub object_path: Path<'static>,
-    tree: Option<common::Tree>,
+    tree: Arc<Mutex<Option<common::Tree>>>,
     is_advertising: Arc<AtomicBool>,
     name: Arc<Mutex<Option<String>>>,
     uuids: Arc<Mutex<Option<Vec<String>>>>,
@@ -47,7 +48,7 @@ impl Advertisement {
 
         let advertisement = factory
             .interface(LE_ADVERTISEMENT_IFACE, ())
-            .add_m(factory.method("Release", (), move |method_info| {
+            .add_m(factory.amethod("Release", (), move |method_info| {
                 is_advertising_release.store(false, Ordering::Relaxed);
                 Ok(vec![method_info.msg.method_return()])
             }))
@@ -97,39 +98,33 @@ impl Advertisement {
             connection,
             adapter,
             object_path: path,
-            tree: Some(tree),
+            tree: Arc::new(Mutex::new(Some(tree))),
             is_advertising,
             name,
             uuids,
         }
     }
 
-    pub fn add_name<T: Into<String>>(self: &mut Self, name: T) {
+    pub fn add_name<T: Into<String>>(self: &Self, name: T) {
         self.name.lock().unwrap().replace(name.into());
     }
 
-    pub fn add_uuids<T: Into<Vec<String>>>(self: &mut Self, uuids: T) {
+    pub fn add_uuids<T: Into<Vec<String>>>(self: &Self, uuids: T) {
         self.uuids.lock().unwrap().replace(uuids.into());
     }
 
-    pub fn register(self: &mut Self) -> Result<ConnectionItems, Error> {
-        self.register_with_dbus()?;
-        self.register_with_bluez();
-        Ok(self.connection.fallback.iter(1000))
-    }
-
-    fn register_with_dbus(self: &mut Self) -> Result<(), dbus::Error> {
-        self.tree
-            .as_mut()
+    pub fn register(
+        self: &Self,
+    ) -> Result<Box<impl Future<Item = (), Error = dbus::Error>>, Error> {
+        // Register with DBus
+        let mut tree = self.tree.lock().unwrap();
+        tree.as_mut()
             .unwrap()
             .set_registered(&self.connection.fallback, true)?;
         self.connection
             .fallback
-            .add_handler(Arc::new(self.tree.take().unwrap()));
-        Ok(())
-    }
+            .add_handler(Arc::new(tree.take().unwrap()));
 
-    fn register_with_bluez(self: &Self) {
         // Create message to register advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
@@ -145,23 +140,21 @@ impl Advertisement {
 
         // Send message
         let is_advertising = self.is_advertising.clone();
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        self.connection.fallback.add_handler(
-            self.connection
-                .fallback
-                .send_with_reply(message, move |_| {
-                    is_advertising.store(true, Ordering::Relaxed);
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            self.connection.fallback.incoming(100).next();
-        }
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .and_then(move |_| {
+                is_advertising.store(true, Ordering::Relaxed);
+                Ok(())
+            });
+        Ok(Box::new(method_call))
     }
 
-    pub fn unregister(self: &Self) -> Result<(), Error> {
+    pub fn unregister(
+        self: &Self,
+    ) -> Result<Box<impl Future<Item = (), Error = dbus::Error>>, Error> {
         // Create message to ungregister advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
@@ -174,22 +167,16 @@ impl Advertisement {
 
         // Send message
         let is_advertising = self.is_advertising.clone();
-        let done: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
-        let done2 = done.clone();
-        self.connection.fallback.add_handler(
-            self.connection
-                .fallback
-                .send_with_reply(message, move |_| {
-                    is_advertising.store(false, Ordering::Relaxed);
-                    done2.set(true);
-                })
-                .unwrap(),
-        );
-        while !done.get() {
-            self.connection.fallback.incoming(100).next();
-        }
-
-        Ok(())
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .and_then(move |_| {
+                is_advertising.store(false, Ordering::Relaxed);
+                Ok(())
+            });
+        Ok(Box::new(method_call))
     }
 
     pub fn is_advertising(self: &Self) -> Result<bool, Error> {

@@ -6,7 +6,8 @@ mod constants;
 mod error;
 mod gatt;
 
-use dbus::ConnectionItems;
+use dbus::Message;
+use futures::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
@@ -21,9 +22,8 @@ pub struct Peripheral {
 }
 
 impl Peripheral {
-    pub fn new() -> Result<Self, Error> {
-        let mut runtime = Runtime::new().unwrap();
-        let connection = Arc::new(Connection::new(&mut runtime)?);
+    pub fn new(runtime: &mut Runtime) -> Result<Self, Error> {
+        let connection = Arc::new(Connection::new(runtime)?);
 
         let adapter = Adapter::new(connection.clone())?;
         adapter.powered_on(true)?;
@@ -38,16 +38,15 @@ impl Peripheral {
         })
     }
 
-    pub fn is_powered_on(self: &Self) -> Result<bool, Error> {
-        self.adapter.is_powered_on()
+    pub fn is_powered_on(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
+        Ok(self.adapter.is_powered_on())
     }
 
     pub fn start_advertising(
-        self: &mut Self,
+        self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Result<ConnectionItems, Error> {
-        self.gatt.register()?;
+    ) -> Result<Box<impl Future<Item = Box<impl Stream<Item = Message, Error = ()>>>>, Error> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -56,21 +55,34 @@ impl Peripheral {
                 .map(|uuid| uuid.to_string())
                 .collect::<Vec<String>>(),
         );
-        self.advertisement.register()
+
+        let advertisement = self.advertisement.clone();
+        let registration = self
+            .gatt
+            .register()?
+            .map_err(|_| ())
+            .and_then(move |stream| {
+                advertisement
+                    .register()
+                    .unwrap()
+                    .and_then(move |_| Ok(stream))
+                    .map_err(|_| ())
+            });
+
+        Ok(Box::new(registration))
     }
 
-    pub fn stop_advertising(self: &mut Self) -> Result<(), Error> {
-        self.advertisement.unregister()?;
-        self.gatt.unregister()?;
-
-        Ok(())
+    pub fn stop_advertising(self: &Self) -> Result<Box<impl Future>, Error> {
+        let advertisement = self.advertisement.unregister()?;
+        let gatt = self.gatt.unregister()?;
+        Ok(Box::new(advertisement.and_then(move |_| Ok(gatt))))
     }
 
     pub fn is_advertising(self: &Self) -> Result<bool, Error> {
         self.advertisement.is_advertising()
     }
 
-    pub fn add_service(self: &mut Self, service: &Service) -> Result<(), Error> {
+    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
         self.gatt.add_service(service)
     }
 }

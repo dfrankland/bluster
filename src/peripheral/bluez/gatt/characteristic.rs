@@ -1,10 +1,10 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::Access,
+    tree::{Access, MethodErr},
     MessageItem, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::{future::Future, sync::oneshot::channel};
+use futures::{prelude::*, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::{
@@ -22,87 +22,95 @@ impl Characteristic {
     pub fn new(
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
-        service: &Arc<Path<'static>>,
+        service: &Path<'static>,
     ) -> Result<Self, dbus::Error> {
         let factory = AFactory::new_afn::<()>();
 
-        let characteristic_read_value = characteristic.clone();
-        let characteristic_write_value = characteristic.clone();
-        let characteristic_uuid = characteristic.clone();
-        let characteristic_service = service.clone();
-        let characteristic_flags = characteristic.clone();
-        let characteristic_value = characteristic.clone();
+        let read_value = characteristic.properties.read.clone();
+        let write_value = characteristic.properties.write.clone();
+        let uuid_value = characteristic.uuid.to_string();
+        let service_value = service.clone();
+        let flags_value = characteristic.properties.clone();
+        let initial_value = characteristic.value.clone();
 
         let mut gatt_characteristic = factory
             .interface(GATT_CHARACTERISTIC_IFACE, ())
-            .add_m(factory.method("ReadValue", (), move |method_info| {
-                if let Some(event_sender) = &(*characteristic_read_value).properties.read {
-                    let (sender, receiver) = channel();
-                    let read_request = gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
-                        offset: method_info
-                            .msg
-                            .get1::<HashMap<String, Variant<MessageItem>>>()
-                            .unwrap()
-                            .get("offset")
-                            .and_then(|offset| offset.clone().as_u64())
-                            .unwrap_or(0) as u16,
-                        response: sender,
-                    });
-                    event_sender
-                        .clone()
-                        .sender()
-                        .try_send(read_request)
-                        .unwrap();
-                    return match receiver.wait() {
-                        Ok(response) => match response {
-                            gatt::event::Response::Success(value) => {
-                                Ok(vec![method_info.msg.method_return().append1(value)])
-                            }
-                            _ => Err((BLUEZ_ERROR_FAILED, "").into()),
-                        },
-                        Err(_) => Err((BLUEZ_ERROR_FAILED, "").into()),
-                    };
-                }
+            .add_m(factory.amethod("ReadValue", (), move |method_info| {
+                let offset = method_info
+                    .msg
+                    .get1::<HashMap<String, Variant<MessageItem>>>()
+                    .unwrap_or_else(HashMap::new)
+                    .get("offset")
+                    .and_then(|offset| offset.as_u64())
+                    .unwrap_or(0) as u16;
+                let mret = method_info.msg.method_return();
 
-                Err((BLUEZ_ERROR_NOTSUPPORTED, "").into())
+                read_value
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        let (sender, receiver) = channel();
+                        event_sender
+                            .sender()
+                            .send(gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
+                                offset,
+                                response: sender,
+                            }))
+                            .map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            .and_then(move |_| {
+                                receiver.map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            })
+                    })
+                    .and_then(move |response| match response {
+                        gatt::event::Response::Success(value) => Ok(vec![mret.append1(value)]),
+                        _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
+                    })
             }))
-            .add_m(factory.method("WriteValue", (), move |method_info| {
-                if let Some(event_sender) = &(*characteristic_write_value).properties.write {
-                    let (sender, receiver) = channel();
-                    let (data, flags) = method_info
-                        .msg
-                        .get2::<Vec<u8>, HashMap<String, Variant<MessageItem>>>();
-                    let write_request =
-                        gatt::event::Event::WriteRequest(gatt::event::WriteRequest {
-                            data: data.unwrap(),
-                            offset: flags.unwrap()["offset"].clone().as_u64().unwrap() as u16,
-                            without_response: false,
-                            response: sender,
-                        });
-                    event_sender
-                        .clone()
-                        .sender()
-                        .try_send(write_request)
-                        .unwrap();
-                    return match receiver.wait() {
-                        Ok(response) => match response {
-                            gatt::event::Response::Success(value) => {
-                                Ok(vec![method_info.msg.method_return().append1(value)])
-                            }
-                            _ => Err((BLUEZ_ERROR_FAILED, "").into()),
-                        },
-                        Err(_) => Err((BLUEZ_ERROR_FAILED, "").into()),
-                    };
-                }
+            .add_m(factory.amethod("WriteValue", (), move |method_info| {
+                let (data, flags) = method_info
+                    .msg
+                    .get2::<Vec<u8>, HashMap<String, Variant<MessageItem>>>();
+                let data = data.unwrap_or_else(Vec::new);
+                let offset = flags
+                    .unwrap_or_else(HashMap::new)
+                    .get("offset")
+                    .and_then(|offset| offset.as_u64())
+                    .unwrap_or(0) as u16;
+                let mret = method_info.msg.method_return();
 
-                Err((BLUEZ_ERROR_NOTSUPPORTED, "").into())
+                write_value
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        let (sender, receiver) = channel();
+                        event_sender
+                            .sender()
+                            .send(gatt::event::Event::WriteRequest(
+                                gatt::event::WriteRequest {
+                                    data,
+                                    offset,
+                                    without_response: false,
+                                    response: sender,
+                                },
+                            ))
+                            .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            .and_then(move |_| {
+                                receiver.map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            })
+                    })
+                    .and_then(move |response| match response {
+                        gatt::event::Response::Success(value) => Ok(vec![mret.append1(value)]),
+                        _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
+                    })
             }))
             .add_p(
                 factory
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*characteristic_uuid).uuid.to_string());
+                        i.append(&uuid_value);
                         Ok(())
                     }),
             )
@@ -111,7 +119,7 @@ impl Characteristic {
                     .property::<Path<'static>, _>("Service", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&*characteristic_service);
+                        i.append(&service_value);
                         Ok(())
                     }),
             )
@@ -120,8 +128,7 @@ impl Characteristic {
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        let gatt::characteristic::Properties { read, write, .. } =
-                            &(*characteristic_flags).properties;
+                        let gatt::characteristic::Properties { read, write, .. } = &flags_value;
 
                         let mut flags = vec![];
 
@@ -157,17 +164,14 @@ impl Characteristic {
                     .property::<&[u8], _>("Value", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*characteristic_value).value.as_ref().unwrap());
+                        i.append(initial_value.clone().unwrap_or_else(Vec::new));
                         Ok(())
                     }),
             );
         }
 
         let object_path = factory
-            .object_path(
-                format!("{}/characteristic{:04}", service.to_string(), 0),
-                (),
-            )
+            .object_path(format!("{}/characteristic{:04}", service, 0), ())
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();
