@@ -71,9 +71,7 @@ fn it_advertises_gatt() {
         .unwrap()
         .and_then(|_| {
             println!("Peripheral powered on");
-            peripheral
-                .start_advertising("hello", &[])
-                .unwrap()
+            peripheral.start_advertising("hello", &[]).unwrap()
         })
         .and_then(|stream| {
             println!("Peripheral started advertising \"hello\"");
