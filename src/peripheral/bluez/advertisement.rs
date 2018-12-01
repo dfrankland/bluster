@@ -113,9 +113,7 @@ impl Advertisement {
         self.uuids.lock().unwrap().replace(uuids.into());
     }
 
-    pub fn register(
-        self: &Self,
-    ) -> Result<Box<impl Future<Item = (), Error = dbus::Error>>, Error> {
+    pub fn register(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
         // Register with DBus
         let mut tree = self.tree.lock().unwrap();
         tree.as_mut()
@@ -148,13 +146,12 @@ impl Advertisement {
             .and_then(move |_| {
                 is_advertising.store(true, Ordering::Relaxed);
                 Ok(())
-            });
+            })
+            .map_err(Error::from);
         Ok(Box::new(method_call))
     }
 
-    pub fn unregister(
-        self: &Self,
-    ) -> Result<Box<impl Future<Item = (), Error = dbus::Error>>, Error> {
+    pub fn unregister(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
         // Create message to ungregister advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
@@ -175,7 +172,8 @@ impl Advertisement {
             .and_then(move |_| {
                 is_advertising.store(false, Ordering::Relaxed);
                 Ok(())
-            });
+            })
+            .map_err(Error::from);
         Ok(Box::new(method_call))
     }
 

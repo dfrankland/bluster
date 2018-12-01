@@ -9,7 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use super::super::{
     constants::{BLUEZ_SERVICE_NAME, GATT_GATT_MANAGER_IFACE, PATH_BASE},
-    Connection,
+    Connection, Error,
 };
 
 #[derive(Debug, Clone)]
@@ -43,7 +43,7 @@ impl Application {
         })
     }
 
-    pub fn register(self: &Self) -> Box<impl Future<Item = Message, Error = dbus::Error>> {
+    pub fn register(self: &Self) -> Box<impl Future<Item = Message, Error = Error>> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -56,10 +56,16 @@ impl Application {
             HashMap::<String, Variant<Box<RefArg>>>::new(),
         );
 
-        Box::new(self.connection.default.method_call(message).unwrap())
+        Box::new(
+            self.connection
+                .default
+                .method_call(message)
+                .unwrap()
+                .map_err(Error::from),
+        )
     }
 
-    pub fn unregister(self: &Self) -> Box<impl Future<Item = Message, Error = dbus::Error>> {
+    pub fn unregister(self: &Self) -> Box<impl Future<Item = Message, Error = Error>> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -68,6 +74,12 @@ impl Application {
         )
         .unwrap()
         .append1(&self.object_path);
-        Box::new(self.connection.default.method_call(message).unwrap())
+        Box::new(
+            self.connection
+                .default
+                .method_call(message)
+                .unwrap()
+                .map_err(Error::from),
+        )
     }
 }

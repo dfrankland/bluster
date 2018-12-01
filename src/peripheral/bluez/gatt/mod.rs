@@ -66,12 +66,7 @@ impl Gatt {
     pub fn register(
         self: &Self,
     ) -> Result<
-        Box<
-            impl Future<
-                Item = Box<impl Stream<Item = Message, Error = ()>>,
-                Error = ((), impl Stream<Item = Message, Error = ()>),
-            >,
-        >,
+        Box<impl Future<Item = Box<impl Stream<Item = Message, Error = Error>>, Error = Error>>,
         Error,
     > {
         let mut tree = self.tree.lock().unwrap();
@@ -93,6 +88,7 @@ impl Gatt {
             Arc::new(tree),
             self.connection.default.messages().unwrap(),
         )
+        .map_err(Error::from)
         .skip_while(move |_| match registration.poll() {
             Ok(ready) => match ready {
                 Async::Ready(_) => {
@@ -104,15 +100,14 @@ impl Gatt {
             _ => Ok(false),
         })
         .into_future()
-        .and_then(move |(.., stream)| Ok(Box::new(stream)));
+        .and_then(move |(.., stream)| Ok(Box::new(stream)))
+        .map_err(|(err, ..)| err);
 
         Ok(Box::new(server))
     }
 
-    pub fn unregister(
-        self: &Self,
-    ) -> Result<Box<impl Future<Item = Message, Error = dbus::Error>>, Error> {
+    pub fn unregister(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
         let application = self.application.lock().unwrap().take().unwrap();
-        Ok(application.unregister())
+        Ok(Box::new(application.unregister().map(|_| ())))
     }
 }

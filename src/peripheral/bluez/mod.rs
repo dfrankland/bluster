@@ -46,7 +46,10 @@ impl Peripheral {
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Result<Box<impl Future<Item = Box<impl Stream<Item = Message, Error = ()>>>>, Error> {
+    ) -> Result<
+        Box<impl Future<Item = Box<impl Stream<Item = Message, Error = Error>>, Error = Error>>,
+        Error,
+    > {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -57,22 +60,20 @@ impl Peripheral {
         );
 
         let advertisement = self.advertisement.clone();
-        let registration = self
-            .gatt
-            .register()?
-            .map_err(|_| ())
-            .and_then(move |stream| {
-                advertisement
-                    .register()
-                    .unwrap()
-                    .and_then(move |_| Ok(stream))
-                    .map_err(|_| ())
-            });
+        let registration = self.gatt.register()?.and_then(move |stream| {
+            advertisement
+                .register()
+                .unwrap()
+                .and_then(move |_| Ok(stream))
+        });
 
         Ok(Box::new(registration))
     }
 
-    pub fn stop_advertising(self: &Self) -> Result<Box<impl Future>, Error> {
+    pub fn stop_advertising(
+        self: &Self,
+    ) -> Result<Box<impl Future<Item = impl Future<Item = (), Error = Error>, Error = Error>>, Error>
+    {
         let advertisement = self.advertisement.unregister()?;
         let gatt = self.gatt.unregister()?;
         Ok(Box::new(advertisement.and_then(move |_| Ok(gatt))))

@@ -69,13 +69,11 @@ fn it_advertises_gatt() {
     let advertisement = peripheral
         .is_powered_on()
         .unwrap()
-        .map_err(|_| ())
         .and_then(|_| {
             println!("Peripheral powered on");
             peripheral
                 .start_advertising("hello", &[])
                 .unwrap()
-                .map_err(|_| ())
         })
         .and_then(|stream| {
             println!("Peripheral started advertising \"hello\"");
@@ -83,7 +81,7 @@ fn it_advertises_gatt() {
                 .into_future()
                 .then(|_| Ok(()))
         })
-        .and_then(|_| peripheral.stop_advertising().map_err(|_| ()))
+        .and_then(|_| peripheral.stop_advertising())
         .and_then(|_| {
             println!("Peripheral stopped advertising");
             Ok(())
