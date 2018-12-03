@@ -1,3 +1,6 @@
+pub const DBUS_PROPERTIES_IFACE: &str = "org.freedesktop.DBus.Properties";
+pub const DBUS_OBJECTMANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
+
 pub const BLUEZ_SERVICE_NAME: &str = "org.bluez";
 
 pub const ADAPTER_IFACE: &str = "org.bluez.Adapter1";

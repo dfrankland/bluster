@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::super::common;
 use super::super::constants::{GATT_SERVICE_IFACE, PATH_BASE};
-use crate::gatt;
+use crate::{gatt, Error};
 
 #[derive(Debug, Clone)]
 pub struct Service {
@@ -15,7 +15,7 @@ impl Service {
     pub fn new(
         tree: &mut common::Tree,
         service: &Arc<gatt::service::Service>,
-    ) -> Result<Self, dbus::Error> {
+    ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<()>();
 
         let service_uuid = service.clone();

@@ -4,7 +4,7 @@ use dbus::{
     Message, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use futures::prelude::*;
+use futures::{future, prelude::*};
 use std::{
     collections::HashMap,
     sync::{
@@ -113,12 +113,18 @@ impl Advertisement {
         self.uuids.lock().unwrap().replace(uuids.into());
     }
 
-    pub fn register(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
+    pub fn register(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
         // Register with DBus
         let mut tree = self.tree.lock().unwrap();
-        tree.as_mut()
+
+        if let Err(err) = tree
+            .as_mut()
             .unwrap()
-            .set_registered(&self.connection.fallback, true)?;
+            .set_registered(&self.connection.fallback, true)
+        {
+            return Box::new(future::Either::A(future::err(Error::from(err))));
+        }
+
         self.connection
             .fallback
             .add_handler(Arc::new(tree.take().unwrap()));
@@ -148,10 +154,11 @@ impl Advertisement {
                 Ok(())
             })
             .map_err(Error::from);
-        Ok(Box::new(method_call))
+
+        Box::new(future::Either::B(method_call))
     }
 
-    pub fn unregister(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
+    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
         // Create message to ungregister advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
@@ -169,16 +176,16 @@ impl Advertisement {
             .default
             .method_call(message)
             .unwrap()
-            .and_then(move |_| {
-                is_advertising.store(false, Ordering::Relaxed);
-                Ok(())
-            })
+            .map(|_| ())
             .map_err(Error::from);
-        Ok(Box::new(method_call))
+
+        is_advertising.store(false, Ordering::Relaxed);
+
+        Box::new(method_call)
     }
 
-    pub fn is_advertising(self: &Self) -> Result<bool, Error> {
+    pub fn is_advertising(self: &Self) -> bool {
         let is_advertising = self.is_advertising.clone();
-        Ok(is_advertising.load(Ordering::Relaxed))
+        is_advertising.load(Ordering::Relaxed)
     }
 }

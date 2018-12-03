@@ -1,5 +1,5 @@
 use crate::{Error, ErrorType};
-use dbus::Error as DbusError;
+use dbus::{arg::TypeMismatchError as DbusTypeMismatchError, Error as DbusError};
 use std::io::Error as IoError;
 
 impl From<DbusError> for Error {
@@ -9,6 +9,12 @@ impl From<DbusError> for Error {
             dbus_error.message().unwrap_or(""),
             ErrorType::Bluez,
         )
+    }
+}
+
+impl From<DbusTypeMismatchError> for Error {
+    fn from(dbus_type_mismatch_error: DbusTypeMismatchError) -> Error {
+        Error::from(DbusError::from(dbus_type_mismatch_error))
     }
 }
 

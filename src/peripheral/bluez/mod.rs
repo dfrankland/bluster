@@ -6,8 +6,7 @@ mod constants;
 mod error;
 mod gatt;
 
-use dbus::Message;
-use futures::prelude::*;
+use futures::{future, prelude::*};
 use std::sync::Arc;
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
@@ -22,34 +21,42 @@ pub struct Peripheral {
 }
 
 impl Peripheral {
-    pub fn new(runtime: &mut Runtime) -> Result<Self, Error> {
-        let connection = Arc::new(Connection::new(runtime)?);
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(runtime: &mut Runtime) -> Box<impl Future<Item = Self, Error = Error>> {
+        let connection = match Connection::new(runtime) {
+            Ok(connection) => Arc::new(connection),
+            Err(err) => return Box::new(future::Either::A(future::err(err))),
+        };
 
-        let adapter = Adapter::new(connection.clone())?;
-        adapter.powered_on(true)?;
+        let peripheral = Adapter::new(connection.clone())
+            .and_then(|adapter| {
+                let adapter1 = adapter.clone();
+                adapter.powered(true).and_then(move |_| Ok(adapter1))
+            })
+            .and_then(move |adapter| {
+                let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
+                let advertisement =
+                    Advertisement::new(connection.clone(), adapter.object_path.clone());
 
-        let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
-        let advertisement = Advertisement::new(connection.clone(), adapter.object_path.clone());
+                Ok(Peripheral {
+                    adapter,
+                    gatt,
+                    advertisement,
+                })
+            });
 
-        Ok(Peripheral {
-            adapter,
-            gatt,
-            advertisement,
-        })
+        Box::new(future::Either::B(peripheral))
     }
 
-    pub fn is_powered_on(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
-        Ok(self.adapter.is_powered_on())
+    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
+        self.adapter.is_powered()
     }
 
     pub fn start_advertising(
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Result<
-        Box<impl Future<Item = Box<impl Stream<Item = Message, Error = Error>>, Error = Error>>,
-        Error,
-    > {
+    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -59,28 +66,21 @@ impl Peripheral {
                 .collect::<Vec<String>>(),
         );
 
-        let advertisement = self.advertisement.clone();
-        let registration = self.gatt.register()?.and_then(move |stream| {
-            advertisement
-                .register()
-                .unwrap()
-                .and_then(move |_| Ok(stream))
-        });
+        let advertisement = self.advertisement.register();
+        let gatt = self.gatt.register();
+        let registration = gatt.join(advertisement).map(|(stream, ..)| stream);
 
-        Ok(Box::new(registration))
+        Box::new(registration)
     }
 
-    pub fn stop_advertising(
-        self: &Self,
-    ) -> Result<Box<impl Future<Item = impl Future<Item = (), Error = Error>, Error = Error>>, Error>
-    {
-        let advertisement = self.advertisement.unregister()?;
-        let gatt = self.gatt.unregister()?;
-        Ok(Box::new(advertisement.and_then(move |_| Ok(gatt))))
+    pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+        let advertisement = self.advertisement.unregister();
+        let gatt = self.gatt.unregister();
+        Box::new(advertisement.join(gatt).map(|_| ()))
     }
 
-    pub fn is_advertising(self: &Self) -> Result<bool, Error> {
-        self.advertisement.is_advertising()
+    pub fn is_advertising(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
+        Box::new(future::ok(self.advertisement.is_advertising()))
     }
 
     pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {

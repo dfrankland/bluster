@@ -24,7 +24,7 @@ impl Application {
         connection: Arc<Connection>,
         tree: &mut Tree<MTFn<ATree<()>>, ATree<()>>,
         adapter: Path<'static>,
-    ) -> Result<Self, dbus::Error> {
+    ) -> Self {
         let factory = AFactory::new_afn::<()>();
 
         let object_path = factory
@@ -36,11 +36,11 @@ impl Application {
 
         tree.insert(object_path);
 
-        Ok(Application {
+        Application {
             connection,
             object_path: path,
             adapter,
-        })
+        }
     }
 
     pub fn register(self: &Self) -> Box<impl Future<Item = Message, Error = Error>> {
@@ -65,7 +65,7 @@ impl Application {
         )
     }
 
-    pub fn unregister(self: &Self) -> Box<impl Future<Item = Message, Error = Error>> {
+    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -74,12 +74,15 @@ impl Application {
         )
         .unwrap()
         .append1(&self.object_path);
-        Box::new(
-            self.connection
-                .default
-                .method_call(message)
-                .unwrap()
-                .map_err(Error::from),
-        )
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map(|_| ())
+            .map_err(Error::from);
+
+        Box::new(method_call)
     }
 }
