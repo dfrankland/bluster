@@ -11,7 +11,7 @@ use super::super::{
     common,
     constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
 };
-use crate::gatt;
+use crate::{gatt, Error};
 
 #[derive(Debug, Clone)]
 pub struct Characteristic {
@@ -23,7 +23,7 @@ impl Characteristic {
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Path<'static>,
-    ) -> Result<Self, dbus::Error> {
+    ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<()>();
 
         let read_value = characteristic.properties.read.clone();

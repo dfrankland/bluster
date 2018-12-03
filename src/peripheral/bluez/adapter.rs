@@ -1,10 +1,16 @@
-use dbus::{stdintf::org_freedesktop_dbus::ObjectManager, MessageItem, Path, Props};
-use futures::{future::poll_fn, prelude::*, Async};
-use std::sync::Arc;
+use dbus::{
+    arg::{RefArg, Variant},
+    Message, MessageItem, Path,
+};
+use futures::prelude::*;
+use std::{collections::HashMap, sync::Arc};
 
 use super::{
     connection::Connection,
-    constants::{ADAPTER_IFACE, BLUEZ_SERVICE_NAME, LE_ADVERTISING_MANAGER_IFACE},
+    constants::{
+        ADAPTER_IFACE, BLUEZ_SERVICE_NAME, DBUS_OBJECTMANAGER_IFACE, DBUS_PROPERTIES_IFACE,
+        LE_ADVERTISING_MANAGER_IFACE,
+    },
 };
 use crate::Error;
 
@@ -15,59 +21,101 @@ pub struct Adapter {
 }
 
 impl Adapter {
-    fn find_adapter(connection: &Arc<Connection>) -> Result<Path<'static>, dbus::Error> {
-        let connection_path = connection.fallback.with_path(BLUEZ_SERVICE_NAME, "/", 5000);
-        let managed_objects = connection_path.get_managed_objects()?;
-        for (path, props) in managed_objects.iter() {
-            if props.contains_key(LE_ADVERTISING_MANAGER_IFACE) {
-                return Ok(path.clone());
-            }
-        }
-
-        panic!("LEAdvertisingManager1 interface not found");
-    }
-
-    pub fn new(connection: Arc<Connection>) -> Result<Self, dbus::Error> {
-        let object_path = Adapter::find_adapter(&connection)?;
-        Ok(Adapter {
-            object_path,
-            connection,
-        })
-    }
-
-    pub fn powered_on(self: &Self, on: bool) -> Result<(), dbus::Error> {
-        Props::new(
-            &self.connection.fallback,
+    fn find_adapter(
+        connection: &Arc<Connection>,
+    ) -> Box<impl Future<Item = Path<'static>, Error = Error>> {
+        let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
-            &self.object_path,
-            ADAPTER_IFACE,
-            1000,
+            "/",
+            DBUS_OBJECTMANAGER_IFACE,
+            "GetManagedObjects",
         )
-        .set("Powered", MessageItem::Bool(on))
+        .unwrap();
+
+        let method_call = connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map_err(Error::from)
+            .and_then(|reply| {
+                reply
+                        .read1::<HashMap<
+                            Path<'static>,
+                            HashMap<String, HashMap<String, Variant<Box<RefArg>>>>,
+                        >>()
+                        .map_err(Error::from)
+            })
+            .and_then(|managed_objects| {
+                for (path, props) in managed_objects.iter() {
+                    if props.contains_key(LE_ADVERTISING_MANAGER_IFACE) {
+                        return Ok(path.clone());
+                    }
+                }
+
+                panic!("LEAdvertisingManager1 interface not found");
+            });
+
+        Box::new(method_call)
     }
 
-    pub fn is_powered_on(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
-        let connection = self.connection.clone();
-        let object_path = self.object_path.clone();
-
-        let powered_on = poll_fn(move || -> Result<Async<()>, Error> {
-            let props = Props::new(
-                &connection.fallback,
-                BLUEZ_SERVICE_NAME,
-                &object_path,
-                ADAPTER_IFACE,
-                1000,
-            );
-
-            let message_item = props.get("Powered")?;
-            let powered = message_item.inner::<bool>();
-            if powered.is_ok() && powered.unwrap() {
-                Ok(Async::Ready(()))
-            } else {
-                Ok(Async::NotReady)
-            }
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(connection: Arc<Connection>) -> Box<impl Future<Item = Self, Error = Error>> {
+        let adapter = Adapter::find_adapter(&connection).and_then(|object_path| {
+            Ok(Adapter {
+                object_path,
+                connection,
+            })
         });
 
-        Box::new(powered_on)
+        Box::new(adapter)
+    }
+
+    pub fn powered(self: &Self, on: bool) -> Box<impl Future<Item = (), Error = Error>> {
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            &self.object_path,
+            DBUS_PROPERTIES_IFACE,
+            "Set",
+        )
+        .unwrap()
+        .append3(
+            ADAPTER_IFACE,
+            "Powered",
+            MessageItem::Variant(Box::new(MessageItem::Bool(on))),
+        );
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map(|_| ())
+            .map_err(Error::from);
+
+        Box::new(method_call)
+    }
+
+    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
+        let message = Message::new_method_call(
+            BLUEZ_SERVICE_NAME,
+            &self.object_path,
+            DBUS_PROPERTIES_IFACE,
+            "Get",
+        )
+        .unwrap()
+        .append2(ADAPTER_IFACE, "Powered");
+
+        let method_call = self
+            .connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .map_err(Error::from)
+            .and_then(|message| match message.read1::<Variant<bool>>() {
+                Ok(variant) => Ok(variant.0),
+                Err(err) => Err(Error::from(err)),
+            });
+
+        Box::new(method_call)
     }
 }

@@ -11,7 +11,7 @@ use super::super::{
     common,
     constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
 };
-use crate::gatt;
+use crate::{gatt, Error};
 
 #[derive(Debug, Clone)]
 pub struct Descriptor {
@@ -23,7 +23,7 @@ impl Descriptor {
         tree: &mut common::Tree,
         descriptor: &Arc<gatt::descriptor::Descriptor>,
         characteristic: &Arc<Path<'static>>,
-    ) -> Result<Self, dbus::Error> {
+    ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<()>();
 
         let descriptor_read_value = descriptor.clone();

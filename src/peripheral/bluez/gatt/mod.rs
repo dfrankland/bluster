@@ -3,9 +3,9 @@ mod characteristic;
 mod descriptor;
 mod service;
 
-use dbus::{Message, Path};
+use dbus::Path;
 use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
-use futures::{prelude::*, Async};
+use futures::{future, prelude::*, sync::mpsc::unbounded};
 use std::{
     rc::Rc,
     sync::{Arc, Mutex},
@@ -65,49 +65,50 @@ impl Gatt {
 
     pub fn register(
         self: &Self,
-    ) -> Result<
-        Box<impl Future<Item = Box<impl Stream<Item = Message, Error = Error>>, Error = Error>>,
-        Error,
-    > {
-        let mut tree = self.tree.lock().unwrap();
-        let mut tree = tree.take().unwrap();
+    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
+        let mut tree = self.tree.lock().unwrap().take().unwrap();
 
         let new_application = Application::new(
             Arc::clone(&self.connection),
             &mut tree,
             self.adapter.clone(),
-        )?;
+        );
 
-        tree.set_registered(&self.connection.fallback, true)?;
+        self.application
+            .lock()
+            .unwrap()
+            .replace(new_application.clone());
 
-        let mut registration = new_application.register();
-        self.application.lock().unwrap().replace(new_application);
+        if let Err(err) = tree.set_registered(&self.connection.fallback, true) {
+            return Box::new(future::Either::A(future::err(Error::from(err))));
+        };
+
+        let (sender, receiver) = unbounded();
+
+        let registration = new_application.register().and_then(move |_| {
+            sender.unbounded_send(()).unwrap();
+            Ok(())
+        });
 
         let server = ATreeServer::new(
             Rc::clone(&self.connection.fallback),
             Arc::new(tree),
             self.connection.default.messages().unwrap(),
         )
+        .map(|_| ())
         .map_err(Error::from)
-        .skip_while(move |_| match registration.poll() {
-            Ok(ready) => match ready {
-                Async::Ready(_) => {
-                    println!("Application registered");
-                    Ok(true)
-                }
-                _ => Ok(false),
-            },
-            _ => Ok(false),
-        })
+        .select(receiver.map_err(Error::from))
         .into_future()
-        .and_then(move |(.., stream)| Ok(Box::new(stream)))
+        .map(|(.., stream)| Box::new(stream))
         .map_err(|(err, ..)| err);
 
-        Ok(Box::new(server))
+        Box::new(future::Either::B(
+            registration.join(server).map(|(.., server)| server),
+        ))
     }
 
-    pub fn unregister(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
+    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
         let application = self.application.lock().unwrap().take().unwrap();
-        Ok(Box::new(application.unregister().map(|_| ())))
+        Box::new(application.unregister().map(|_| ()))
     }
 }
