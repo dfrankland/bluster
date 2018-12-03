@@ -1,3 +1,8 @@
+use futures::{prelude::*, sync::mpsc::channel};
+use std::{collections::HashSet, sync::Arc, thread, time::Duration};
+use tokio::{runtime::current_thread::Runtime, timer::Timeout};
+use uuid::Uuid;
+
 use bluster::{
     gatt::{
         characteristic,
@@ -8,64 +13,14 @@ use bluster::{
     },
     Peripheral, SdpShortUuid,
 };
-use futures::{executor::spawn, sync::mpsc::channel};
-use std::{collections::HashSet, thread, time};
-use uuid::Uuid;
-
-const ITERATIONS: u64 = 60;
-const SLEEP_SECS: u64 = 1;
 
 #[test]
 fn it_advertises_gatt() {
-    let (sender, r) = channel(1);
-    let mut receiver = spawn(r);
+    let (sender, receiver) = channel(1);
 
     thread::spawn(move || {
-        let mut characteristics: HashSet<Characteristic> = HashSet::new();
-        characteristics.insert(Characteristic::new(
-            Uuid::from_sdp_short_uuid(0x2A3D as u16),
-            characteristic::Properties::new(
-                Some(characteristic::Secure::Insecure(sender)),
-                None,
-                None,
-                None,
-            ),
-            None,
-            HashSet::<Descriptor>::new(),
-        ));
-
-        let mut peripheral = Peripheral::new().unwrap();
-        peripheral
-            .add_service(&Service::new(
-                Uuid::from_sdp_short_uuid(0x1234 as u16),
-                true,
-                characteristics,
-            ))
-            .unwrap();
-
-        while !peripheral.is_powered_on().unwrap() {}
-
-        println!("Peripheral powered on");
-
-        let mut check = peripheral.start_advertising("hello", &[]).unwrap();
-
-        println!("Peripheral started advertising \"hello\"");
-
-        for _ in 0..ITERATIONS {
-            check.next();
-            thread::sleep(time::Duration::from_secs(SLEEP_SECS));
-        }
-
-        peripheral.stop_advertising().unwrap();
-
-        while !peripheral.is_advertising().unwrap() {}
-
-        println!("Peripheral stopped");
-    });
-
-    for _ in 0..ITERATIONS {
-        if let Some(result) = receiver.wait_stream() {
-            if let Ok(event) = result {
+        let handler = receiver
+            .map(|event| {
                 match event {
                     Event::ReadRequest(read_request) => {
                         println!(
@@ -80,8 +35,56 @@ fn it_advertises_gatt() {
                     }
                     _ => panic!("Got some other event!"),
                 };
-            }
-        }
-        thread::sleep(time::Duration::from_secs(SLEEP_SECS));
-    }
+            })
+            .collect();
+        let mut runtime = Runtime::new().unwrap();
+        runtime.block_on(handler).unwrap();
+        runtime.run().unwrap();
+    });
+
+    let mut characteristics: HashSet<Characteristic> = HashSet::new();
+    characteristics.insert(Characteristic::new(
+        Uuid::from_sdp_short_uuid(0x2A3D as u16),
+        characteristic::Properties::new(
+            Some(characteristic::Secure::Insecure(sender)),
+            None,
+            None,
+            None,
+        ),
+        None,
+        HashSet::<Descriptor>::new(),
+    ));
+
+    let mut runtime = Runtime::new().unwrap();
+    let peripheral = Arc::new(Peripheral::new(&mut runtime).unwrap());
+
+    peripheral
+        .add_service(&Service::new(
+            Uuid::from_sdp_short_uuid(0x1234 as u16),
+            true,
+            characteristics,
+        ))
+        .unwrap();
+
+    let advertisement = peripheral
+        .is_powered_on()
+        .unwrap()
+        .and_then(|_| {
+            println!("Peripheral powered on");
+            peripheral.start_advertising("hello", &[]).unwrap()
+        })
+        .and_then(|stream| {
+            println!("Peripheral started advertising \"hello\"");
+            Timeout::new(stream, Duration::from_secs(60))
+                .into_future()
+                .then(|_| Ok(()))
+        })
+        .and_then(|_| peripheral.stop_advertising())
+        .and_then(|_| {
+            println!("Peripheral stopped advertising");
+            Ok(())
+        });
+
+    runtime.block_on(advertisement).unwrap();
+    runtime.run().unwrap();
 }

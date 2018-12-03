@@ -1,149 +1,89 @@
 mod adapter;
 mod advertisement;
-mod application;
-mod characteristic;
+mod common;
+mod connection;
 mod constants;
-mod descriptor;
 mod error;
-mod service;
+mod gatt;
 
-use dbus::{
-    tree::{Factory, MTFn, Tree},
-    BusType, Connection, ConnectionItems,
-};
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use dbus::Message;
+use futures::prelude::*;
+use std::sync::Arc;
+use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
-use crate::{gatt, Error};
+use self::{adapter::Adapter, advertisement::Advertisement, connection::Connection, gatt::Gatt};
+use crate::{gatt::service::Service, Error};
 
-use adapter::Adapter;
-use advertisement::Advertisement;
-use application::Application;
-use characteristic::Characteristic;
-use descriptor::Descriptor;
-use service::Service;
-
-#[derive(Debug)]
 pub struct Peripheral {
-    connection: Connection,
     adapter: Adapter,
-    factory: Factory<MTFn>,
-    tree: Option<Tree<MTFn, ()>>,
-    application: Option<Application>,
-    advertisement: Option<Advertisement>,
-    is_advertising: Arc<AtomicBool>,
+    gatt: Gatt,
+    advertisement: Advertisement,
 }
 
 impl Peripheral {
-    pub fn new() -> Result<Self, Error> {
-        let connection = Connection::get_private(BusType::System)?;
-        let adapter = Adapter::new(&connection)?;
-        adapter.powered_on(&connection, true)?;
+    pub fn new(runtime: &mut Runtime) -> Result<Self, Error> {
+        let connection = Arc::new(Connection::new(runtime)?);
 
-        let factory = Factory::new_fn::<()>();
+        let adapter = Adapter::new(connection.clone())?;
+        adapter.powered_on(true)?;
+
+        let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
+        let advertisement = Advertisement::new(connection.clone(), adapter.object_path.clone());
 
         Ok(Peripheral {
-            connection,
             adapter,
-            tree: Some(factory.tree(())),
-            factory,
-            application: None,
-            advertisement: None,
-            is_advertising: Arc::new(AtomicBool::new(false)),
+            gatt,
+            advertisement,
         })
     }
 
-    pub fn is_powered_on(self: &Self) -> Result<bool, Error> {
-        Ok(self.adapter.is_powered_on(&self.connection)?)
+    pub fn is_powered_on(self: &Self) -> Result<Box<impl Future<Item = (), Error = Error>>, Error> {
+        Ok(self.adapter.is_powered_on())
     }
 
     pub fn start_advertising(
-        self: &mut Self,
+        self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Result<ConnectionItems, Error> {
-        let application = Application::new(
-            &self.factory,
-            self.tree.as_mut().unwrap(),
-            self.adapter.clone(),
-        )?;
-
-        self.tree
-            .as_ref()
-            .unwrap()
-            .set_registered(&self.connection, true)?;
-        self.connection
-            .add_handler(Arc::new(self.tree.take().unwrap()));
-
-        application.register(&self.connection);
-        self.application.replace(application);
-
-        let advertisement = Advertisement::new(
-            &self.factory,
-            self.adapter.clone(),
-            self.is_advertising.clone(),
-            Arc::new(name.to_string()),
-            Arc::new(
-                uuids
-                    .to_vec()
-                    .iter()
-                    .map(|uuid| uuid.to_string())
-                    .collect::<Vec<String>>(),
-            ),
+    ) -> Result<
+        Box<impl Future<Item = Box<impl Stream<Item = Message, Error = Error>>, Error = Error>>,
+        Error,
+    > {
+        self.advertisement.add_name(name);
+        self.advertisement.add_uuids(
+            uuids
+                .to_vec()
+                .iter()
+                .map(|uuid| uuid.to_string())
+                .collect::<Vec<String>>(),
         );
-        advertisement.register(&self.connection).unwrap();
-        self.advertisement.replace(advertisement);
 
-        Ok(self.connection.iter(1000))
+        let advertisement = self.advertisement.clone();
+        let registration = self.gatt.register()?.and_then(move |stream| {
+            advertisement
+                .register()
+                .unwrap()
+                .and_then(move |_| Ok(stream))
+        });
+
+        Ok(Box::new(registration))
     }
 
-    pub fn stop_advertising(self: &mut Self) -> Result<(), Error> {
-        self.advertisement
-            .take()
-            .unwrap()
-            .unregister(&self.connection);
-
-        self.application
-            .take()
-            .unwrap()
-            .unregister(&self.connection);
-
-        Ok(())
+    pub fn stop_advertising(
+        self: &Self,
+    ) -> Result<Box<impl Future<Item = impl Future<Item = (), Error = Error>, Error = Error>>, Error>
+    {
+        let advertisement = self.advertisement.unregister()?;
+        let gatt = self.gatt.unregister()?;
+        Ok(Box::new(advertisement.and_then(move |_| Ok(gatt))))
     }
 
     pub fn is_advertising(self: &Self) -> Result<bool, Error> {
-        let is_advertising = self.is_advertising.clone();
-        Ok(is_advertising.load(Ordering::Relaxed))
+        self.advertisement.is_advertising()
     }
 
-    pub fn add_service(self: &mut Self, service: &gatt::service::Service) -> Result<(), Error> {
-        let gatt_service = Service::new(
-            &self.factory,
-            self.tree.as_mut().unwrap(),
-            &Arc::new(service.clone()),
-        )?;
-
-        for characteristic in service.characteristics.iter() {
-            let gatt_characteristic = Characteristic::new(
-                &self.factory,
-                self.tree.as_mut().unwrap(),
-                &Arc::new(characteristic.clone()),
-                &Arc::new(gatt_service.object_path.clone()),
-            )?;
-
-            for descriptor in characteristic.descriptors.iter() {
-                Descriptor::new(
-                    &self.factory,
-                    self.tree.as_mut().unwrap(),
-                    &Arc::new(descriptor.clone()),
-                    &Arc::new(gatt_characteristic.object_path.clone()),
-                )?;
-            }
-        }
-
-        Ok(())
+    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
+        self.gatt.add_service(service)
     }
 }

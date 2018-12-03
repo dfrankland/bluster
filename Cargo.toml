@@ -1,20 +1,18 @@
 [package]
-name = "bluster"
-version = "0.1.0"
 authors = ["Dylan Frankland <github@frankland.io>"]
 edition = "2018"
-
+name = "bluster"
+version = "0.1.0"
 [dependencies]
 futures = "0.1.25"
 uuid = "0.7.1"
-
-[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+[target."cfg(any(target_os = \"linux\", target_os = \"android\"))".dependencies]
 dbus = "0.6.3"
-
-[target.'cfg(any(target_os = "windows", target_os = "freebsd"))'.dependencies]
-libusb = "0.3.0"
-
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+dbus-tokio = "0.3.0"
+tokio = "0.1.11"
+[target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
 objc = "0.2.5"
-objc_id = "0.1.1"
 objc-foundation = "0.1.1"
+objc_id = "0.1.1"
+[target."cfg(any(target_os = \"windows\", target_os = \"freebsd\"))".dependencies]
+libusb = "0.3.0"

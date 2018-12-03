@@ -1,12 +1,17 @@
-use super::constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE};
-use crate::gatt;
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{Access, Factory, MTFn, Tree},
+    tree::Access,
     MessageItem, Path,
 };
+use dbus_tokio::tree::AFactory;
 use futures::{future::Future, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
+
+use super::super::{
+    common,
+    constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
+};
+use crate::gatt;
 
 #[derive(Debug, Clone)]
 pub struct Descriptor {
@@ -15,11 +20,12 @@ pub struct Descriptor {
 
 impl Descriptor {
     pub fn new(
-        factory: &Factory<MTFn>,
-        tree: &mut Tree<MTFn, ()>,
+        tree: &mut common::Tree,
         descriptor: &Arc<gatt::descriptor::Descriptor>,
         characteristic: &Arc<Path<'static>>,
     ) -> Result<Self, dbus::Error> {
+        let factory = AFactory::new_afn::<()>();
+
         let descriptor_read_value = descriptor.clone();
         let descriptor_write_value = descriptor.clone();
         let descriptor_uuid = descriptor.clone();
