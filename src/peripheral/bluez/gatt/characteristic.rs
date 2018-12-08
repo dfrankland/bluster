@@ -7,9 +7,12 @@ use dbus_tokio::tree::AFactory;
 use futures::{prelude::*, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
-use super::super::{
-    common,
-    constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
+use super::{
+    flags::Flags,
+    super::{
+        common,
+        constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
+    },
 };
 use crate::{gatt, Error};
 
@@ -28,9 +31,9 @@ impl Characteristic {
 
         let read_value = characteristic.properties.read.clone();
         let write_value = characteristic.properties.write.clone();
+        let flags_value = characteristic.properties.flags().clone();
         let uuid_value = characteristic.uuid.to_string();
         let service_value = service.clone();
-        let flags_value = characteristic.properties.clone();
         let initial_value = characteristic.value.clone();
 
         let mut gatt_characteristic = factory
@@ -128,32 +131,7 @@ impl Characteristic {
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        let gatt::characteristic::Properties { read, write, .. } = &flags_value;
-
-                        let mut flags = vec![];
-
-                        if let Some(read) = read {
-                            let read_flag = match read {
-                                gatt::characteristic::Secure::Secure(_) => "secure-read",
-                                gatt::characteristic::Secure::Insecure(_) => "read",
-                            };
-                            flags.push(read_flag);
-                        }
-
-                        if let Some(write) = write {
-                            let write_flag = match write {
-                                gatt::characteristic::Write::WithResponse(secure) => match secure {
-                                    gatt::characteristic::Secure::Secure(_) => "secure-write",
-                                    gatt::characteristic::Secure::Insecure(_) => "write",
-                                },
-                                gatt::characteristic::Write::WithoutResponse(_) => {
-                                    "write-without-response"
-                                }
-                            };
-                            flags.push(write_flag);
-                        }
-
-                        i.append(flags);
+                        i.append(flags_value.clone());
                         Ok(())
                     }),
             );
