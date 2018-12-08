@@ -1,15 +1,18 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::Access,
+    tree::{Access, MethodErr},
     MessageItem, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::{future::Future, sync::oneshot::channel};
+use futures::{prelude::*, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
-use super::super::{
-    common,
-    constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
+use super::{
+    flags::Flags,
+    super::{
+        common,
+        constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
+    },
 };
 use crate::{gatt, Error};
 
@@ -22,87 +25,95 @@ impl Descriptor {
     pub fn new(
         tree: &mut common::Tree,
         descriptor: &Arc<gatt::descriptor::Descriptor>,
-        characteristic: &Arc<Path<'static>>,
+        characteristic: &Path<'static>,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<()>();
 
-        let descriptor_read_value = descriptor.clone();
-        let descriptor_write_value = descriptor.clone();
-        let descriptor_uuid = descriptor.clone();
-        let descriptor_characteristic = characteristic.clone();
-        let descriptor_flags = descriptor.clone();
-        let descriptor_value = descriptor.clone();
+        let read_value = descriptor.properties.read.clone();
+        let write_value = descriptor.properties.write.clone();
+        let flags_value = descriptor.properties.flags().clone();
+        let uuid_value = descriptor.uuid.to_string();
+        let characteristic_value = characteristic.clone();
+        let intial_value = descriptor.value.clone().unwrap_or_else(Vec::new);
 
         let mut gatt_descriptor = factory
             .interface(GATT_DESCRIPTOR_IFACE, ())
-            .add_m(factory.method("ReadValue", (), move |method_info| {
-                if let Some(ref event_sender) = &(*descriptor_read_value).properties.read {
-                    let (sender, receiver) = channel();
-                    let read_request = gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
-                        offset: method_info
-                            .msg
-                            .get1::<HashMap<String, Variant<MessageItem>>>()
-                            .unwrap()["offset"]
-                            .clone()
-                            .as_u64()
-                            .unwrap() as u16,
-                        response: sender,
-                    });
-                    event_sender
-                        .clone()
-                        .sender()
-                        .try_send(read_request)
-                        .unwrap();
-                    return match receiver.wait() {
-                        Ok(response) => match response {
-                            gatt::event::Response::Success(value) => {
-                                Ok(vec![method_info.msg.method_return().append1(value)])
-                            }
-                            _ => Err((BLUEZ_ERROR_FAILED, "").into()),
-                        },
-                        Err(_) => Err((BLUEZ_ERROR_FAILED, "").into()),
-                    };
-                }
+            .add_m(factory.amethod("ReadValue", (), move |method_info| {
+                let offset = method_info
+                    .msg
+                    .get1::<HashMap<String, Variant<MessageItem>>>()
+                    .unwrap_or_else(HashMap::new)
+                    .get("offset")
+                    .and_then(|offset| offset.as_u64())
+                    .unwrap_or(0) as u16;
+                let mret = method_info.msg.method_return();
 
-                Err((BLUEZ_ERROR_NOTSUPPORTED, "").into())
+                read_value
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        let (sender, receiver) = channel();
+                        event_sender
+                            .sender()
+                            .send(gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
+                                offset,
+                                response: sender,
+                            }))
+                            .map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            .and_then(move |_| {
+                                receiver.map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            })
+                    })
+                    .and_then(move |response| match response {
+                        gatt::event::Response::Success(value) => Ok(vec![mret.append1(value)]),
+                        _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
+                    })
             }))
-            .add_m(factory.method("WriteValue", (), move |method_info| {
-                if let Some(ref event_sender) = &(*descriptor_write_value).properties.write {
-                    let (sender, receiver) = channel();
-                    let (data, flags) = method_info
-                        .msg
-                        .get2::<Vec<u8>, HashMap<String, Variant<MessageItem>>>();
-                    let write_request =
-                        gatt::event::Event::WriteRequest(gatt::event::WriteRequest {
-                            data: data.unwrap(),
-                            offset: flags.unwrap()["offset"].clone().as_u64().unwrap() as u16,
-                            without_response: false,
-                            response: sender,
-                        });
-                    event_sender
-                        .clone()
-                        .sender()
-                        .try_send(write_request)
-                        .unwrap();
-                    return match receiver.wait() {
-                        Ok(response) => match response {
-                            gatt::event::Response::Success(value) => {
-                                Ok(vec![method_info.msg.method_return().append1(value)])
-                            }
-                            _ => Err((BLUEZ_ERROR_FAILED, "").into()),
-                        },
-                        Err(_) => Err((BLUEZ_ERROR_FAILED, "").into()),
-                    };
-                }
+            .add_m(factory.amethod("WriteValue", (), move |method_info| {
+                let (data, flags) = method_info
+                    .msg
+                    .get2::<Vec<u8>, HashMap<String, Variant<MessageItem>>>();
+                let data = data.unwrap_or_else(Vec::new);
+                let offset = flags
+                    .unwrap_or_else(HashMap::new)
+                    .get("offset")
+                    .and_then(|offset| offset.as_u64())
+                    .unwrap_or(0) as u16;
+                let mret = method_info.msg.method_return();
 
-                Err((BLUEZ_ERROR_NOTSUPPORTED, "").into())
+                write_value
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        let (sender, receiver) = channel();
+                        event_sender
+                            .sender()
+                            .send(gatt::event::Event::WriteRequest(
+                                gatt::event::WriteRequest {
+                                    data,
+                                    offset,
+                                    without_response: false,
+                                    response: sender,
+                                },
+                            ))
+                            .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            .and_then(move |_| {
+                                receiver.map_err(move |_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                            })
+                    })
+                    .and_then(move |response| match response {
+                        gatt::event::Response::Success(value) => Ok(vec![mret.append1(value)]),
+                        _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
+                    })
             }))
             .add_p(
                 factory
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*descriptor_uuid).uuid.to_string());
+                        i.append(&uuid_value);
                         Ok(())
                     }),
             )
@@ -111,7 +122,7 @@ impl Descriptor {
                     .property::<Path<'static>, _>("Characteristic", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&*descriptor_characteristic);
+                        i.append(&characteristic_value);
                         Ok(())
                     }),
             )
@@ -120,28 +131,7 @@ impl Descriptor {
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        let gatt::descriptor::Properties { read, write, .. } =
-                            &(*descriptor_flags).properties;
-
-                        let mut flags = vec![];
-
-                        if let Some(read) = read {
-                            let read_flag = match read {
-                                gatt::descriptor::Secure::Secure(_) => "secure-read",
-                                gatt::descriptor::Secure::Insecure(_) => "read",
-                            };
-                            flags.push(read_flag);
-                        }
-
-                        if let Some(write) = write {
-                            let write_flag = match write {
-                                gatt::descriptor::Secure::Secure(_) => "secure-read",
-                                gatt::descriptor::Secure::Insecure(_) => "read",
-                            };
-                            flags.push(write_flag);
-                        }
-
-                        i.append(flags);
+                        i.append(&flags_value);
                         Ok(())
                     }),
             );
@@ -152,7 +142,7 @@ impl Descriptor {
                     .property::<&[u8], _>("Value", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*descriptor_value).value.as_ref().unwrap());
+                        i.append(&intial_value);
                         Ok(())
                     }),
             );
