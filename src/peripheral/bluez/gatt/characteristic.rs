@@ -34,7 +34,7 @@ impl Characteristic {
         let flags_value = characteristic.properties.flags().clone();
         let uuid_value = characteristic.uuid.to_string();
         let service_value = service.clone();
-        let initial_value = characteristic.value.clone();
+        let initial_value = characteristic.value.clone().unwrap_or_else(Vec::new);
 
         let mut gatt_characteristic = factory
             .interface(GATT_CHARACTERISTIC_IFACE, ())
@@ -131,7 +131,7 @@ impl Characteristic {
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(flags_value.clone());
+                        i.append(&flags_value);
                         Ok(())
                     }),
             );
@@ -142,7 +142,7 @@ impl Characteristic {
                     .property::<&[u8], _>("Value", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(initial_value.clone().unwrap_or_else(Vec::new));
+                        i.append(&initial_value);
                         Ok(())
                     }),
             );
