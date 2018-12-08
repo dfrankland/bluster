@@ -2,6 +2,7 @@ mod application;
 mod characteristic;
 mod descriptor;
 mod service;
+mod flags;
 
 use dbus::Path;
 use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
