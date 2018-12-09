@@ -47,6 +47,7 @@ impl Gatt {
 
         for characteristic in service.characteristics.iter() {
             let gatt_characteristic = Characteristic::new(
+                self.connection.clone(),
                 tree,
                 &Arc::new(characteristic.clone()),
                 &Arc::new(gatt_service.object_path.clone()),

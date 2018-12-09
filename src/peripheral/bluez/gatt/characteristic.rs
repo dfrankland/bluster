@@ -1,17 +1,18 @@
 use dbus::{
     arg::{RefArg, Variant},
     tree::{Access, MethodErr},
-    MessageItem, Path,
+    Message, MessageItem, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::{prelude::*, sync::oneshot::channel};
+use futures::{prelude::*, sync::{oneshot, mpsc}};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
     flags::Flags,
     super::{
+        Connection,
         common,
-        constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
+        constants::{BLUEZ_SERVICE_NAME, DBUS_PROPERTIES_IFACE, BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
     },
 };
 use crate::{gatt, Error};
@@ -23,14 +24,27 @@ pub struct Characteristic {
 
 impl Characteristic {
     pub fn new(
+        connection: Arc<Connection>,
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Path<'static>,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<()>();
 
+        let mut object_path = factory
+            .object_path(format!("{}/characteristic{:04}", service, 0), ());
+        let object_path_name = object_path.get_name().clone();
+
         let read_value = characteristic.properties.read.clone();
         let write_value = characteristic.properties.write.clone();
+
+        let notify_value_start = characteristic.properties.notify.clone();
+        let notify_value_stop = notify_value_start.clone();
+
+        // TODO: Indicate too
+        // let indicate_value_start = characteristic.properties.indicate.clone();
+        // let indicate_value_stop = indicate_value_start.clone();
+
         let flags_value = characteristic.properties.flags().clone();
         let uuid_value = characteristic.uuid.to_string();
         let service_value = service.clone();
@@ -53,7 +67,7 @@ impl Characteristic {
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
                     .and_then(move |event_sender| {
-                        let (sender, receiver) = channel();
+                        let (sender, receiver) = oneshot::channel();
                         event_sender
                             .sender()
                             .send(gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
@@ -87,7 +101,7 @@ impl Characteristic {
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
                     .and_then(move |event_sender| {
-                        let (sender, receiver) = channel();
+                        let (sender, receiver) = oneshot::channel();
                         event_sender
                             .sender()
                             .send(gatt::event::Event::WriteRequest(
@@ -107,6 +121,66 @@ impl Characteristic {
                         gatt::event::Response::Success(value) => Ok(vec![mret.append1(value)]),
                         _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
                     })
+            }))
+            .add_m(factory.amethod("StartNotify", (), move |_| {
+                let (sender, receiver) = mpsc::channel(1);
+                let notify_subscribe = gatt::event::NotifySubscribe {
+                    notification: sender,
+                };
+                let connection = connection.clone();
+                let object_path_name = object_path_name.clone();
+                notify_value_start
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        event_sender
+                            .send(gatt::event::Event::NotifySubscribe(notify_subscribe))
+                            .map_err(|_| {
+                                MethodErr::from((BLUEZ_ERROR_FAILED, ""))
+                            })
+                    })
+                    .and_then(move |_| {
+                        receiver.for_each(move |notification| {
+                            let message = Message::new_method_call(
+                                BLUEZ_SERVICE_NAME,
+                                object_path_name.clone(),
+                                DBUS_PROPERTIES_IFACE,
+                                "Set",
+                            )
+                            .unwrap()
+                            .append3(
+                                GATT_CHARACTERISTIC_IFACE,
+                                "Value",
+                                notification,
+                            );
+
+                            connection
+                                .clone()
+                                .default
+                                .method_call(message)
+                                .unwrap()
+                                .then(|_| Ok(()))
+                        })
+                        .map_err(|_| {
+                            MethodErr::from((BLUEZ_ERROR_FAILED, ""))
+                        })
+                    })
+                    .and_then(|_| Ok(vec![]))
+            }))
+            .add_m(factory.amethod("StopNotify", (), move |_| {
+                notify_value_stop
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        event_sender
+                            .send(gatt::event::Event::NotifyUnsubscribe)
+                            .map_err(|_| {
+                                MethodErr::from((BLUEZ_ERROR_FAILED, ""))
+                            })
+                    })
+                    .and_then(|_| Ok(vec![]))
             }))
             .add_p(
                 factory
@@ -148,8 +222,7 @@ impl Characteristic {
             );
         }
 
-        let object_path = factory
-            .object_path(format!("{}/characteristic{:04}", service, 0), ())
+        object_path = object_path
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();

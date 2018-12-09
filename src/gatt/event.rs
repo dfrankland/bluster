@@ -9,8 +9,6 @@ pub enum Event {
     WriteRequest(WriteRequest),
     NotifySubscribe(NotifySubscribe),
     NotifyUnsubscribe,
-    Notify,
-    Indicate,
 }
 
 #[derive(Debug)]
@@ -29,7 +27,7 @@ pub struct WriteRequest {
 
 #[derive(Debug, Clone)]
 pub struct NotifySubscribe {
-    pub max_value_size: u16,
+    pub notification: mpsc::Sender<Vec<u8>>,
 }
 
 #[derive(Debug, Clone)]
