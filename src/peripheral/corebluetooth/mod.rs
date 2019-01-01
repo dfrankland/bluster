@@ -35,7 +35,7 @@ impl Peripheral {
         self.peripheral_manager.start_advertising(name, uuids);
 
         // TODO: Create an actual stream
-        Box::new(future::ok(Box::new(stream::once(Ok(())))))
+        Box::new(future::ok(Box::new(stream::repeat::<_, Error>(()))))
     }
 
     pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
@@ -47,8 +47,9 @@ impl Peripheral {
         Box::new(future::ok(self.peripheral_manager.is_advertising()))
     }
 
-    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
-        self.peripheral_manager.add_service(service);
+    pub fn add_service(self: &Self, _service: &Service) -> Result<(), Error> {
+        // TODO: Fix adding services
+        // self.peripheral_manager.add_service(service);
         Ok(())
     }
 }

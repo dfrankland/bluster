@@ -166,6 +166,8 @@ impl PeripheralManager {
         }
     }
 
+    // TODO: Fix this
+    #[allow(dead_code)]
     pub fn add_service(self: &Self, service: &Service) {
         let characteristics: Vec<Id<NSObject>> = service
             .characteristics
