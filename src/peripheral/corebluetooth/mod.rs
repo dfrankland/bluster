@@ -20,7 +20,9 @@ pub struct Peripheral {
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
     pub fn new(_runtime: &mut Runtime) -> Box<impl Future<Item = Self, Error = Error>> {
-        Box::new(future::ok(Peripheral { peripheral_manager: PeripheralManager::new() }))
+        Box::new(future::ok(Peripheral {
+            peripheral_manager: PeripheralManager::new(),
+        }))
     }
 
     pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {

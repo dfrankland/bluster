@@ -3,19 +3,12 @@ use objc::{
     runtime::{Object, Sel, NO, YES},
     sel, sel_impl,
 };
-use objc_foundation::{
-    INSArray, INSString, NSArray, NSObject, NSString,
-};
+use objc_foundation::{INSArray, INSString, NSArray, NSObject, NSString};
 
 use super::{
+    constants::POWERED_ON_IVAR,
+    ffi::{CBATTError, CBManagerState},
     into_bool::IntoBool,
-    constants::{
-        POWERED_ON_IVAR,
-    },
-    ffi::{
-        CBATTError,
-        CBManagerState,
-    }
 };
 
 // TODO: Implement event stream for all below callback

@@ -1,4 +1,4 @@
-use objc::runtime::{Object, BOOL, YES, NO};
+use objc::runtime::{Object, BOOL, NO, YES};
 
 pub trait IntoBool {
     fn into_bool(self) -> bool;
@@ -26,6 +26,10 @@ pub trait IntoObjcBool {
 
 impl IntoObjcBool for bool {
     fn into_objc_bool(self) -> BOOL {
-        if self { YES } else { NO }
+        if self {
+            YES
+        } else {
+            NO
+        }
     }
 }

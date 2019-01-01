@@ -20,18 +20,12 @@ use uuid::Uuid;
 use crate::gatt::service::Service;
 
 use super::{
-    constants::{
-        PERIPHERAL_MANAGER_DELEGATE_CLASS_NAME,
-        PERIPHERAL_MANAGER_IVAR,
-        POWERED_ON_IVAR,
-    },
     characteristic_flags::get_properties_and_permissions,
+    constants::{PERIPHERAL_MANAGER_DELEGATE_CLASS_NAME, PERIPHERAL_MANAGER_IVAR, POWERED_ON_IVAR},
     events::{
-      peripheral_manager_did_update_state,
-      peripheral_manager_did_start_advertising_error,
-      peripheral_manager_did_add_service_error,
-      peripheral_manager_did_receive_read_request,
-      peripheral_manager_did_receive_write_requests,
+        peripheral_manager_did_add_service_error, peripheral_manager_did_receive_read_request,
+        peripheral_manager_did_receive_write_requests,
+        peripheral_manager_did_start_advertising_error, peripheral_manager_did_update_state,
     },
     ffi::{
         dispatch_queue_create, nil, CBAdvertisementDataLocalNameKey,
