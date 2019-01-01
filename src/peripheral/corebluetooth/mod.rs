@@ -4,6 +4,7 @@ mod error;
 mod events;
 mod ffi;
 mod into_bool;
+mod into_cbuuid;
 mod peripheral_manager;
 
 use futures::{future, prelude::*, stream};
@@ -49,9 +50,8 @@ impl Peripheral {
         Box::new(future::ok(self.peripheral_manager.is_advertising()))
     }
 
-    pub fn add_service(self: &Self, _service: &Service) -> Result<(), Error> {
-        // TODO: Fix adding services
-        // self.peripheral_manager.add_service(service);
+    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
+        self.peripheral_manager.add_service(service);
         Ok(())
     }
 }
