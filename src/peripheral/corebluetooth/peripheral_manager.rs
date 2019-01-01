@@ -32,6 +32,7 @@ use super::{
         CBAdvertisementDataServiceUUIDsKey, DISPATCH_QUEUE_SERIAL,
     },
     into_bool::IntoBool,
+    into_cbuuid::IntoCBUUID,
 };
 
 static REGISTER_DELEGATE_CLASS: Once = ONCE_INIT;
@@ -160,8 +161,6 @@ impl PeripheralManager {
         }
     }
 
-    // TODO: Fix this
-    #[allow(dead_code)]
     pub fn add_service(self: &Self, service: &Service) {
         let characteristics: Vec<Id<NSObject>> = service
             .characteristics
@@ -169,11 +168,10 @@ impl PeripheralManager {
             .map(|characteristic| {
                 let (properties, permissions) = get_properties_and_permissions(characteristic);
                 unsafe {
-                    let init_with_type = NSString::from_str(&characteristic.uuid.to_string());
-
                     let cls = class!(CBMutableCharacteristic);
                     let obj: *mut Object = msg_send![cls, alloc];
 
+                    let init_with_type = characteristic.uuid.into_cbuuid();
                     let mutable_characteristic: *mut Object = match characteristic.value {
                         Some(ref value) => msg_send![obj, initWithType:init_with_type
                                                             properties:properties
@@ -193,11 +191,16 @@ impl PeripheralManager {
         unsafe {
             let cls = class!(CBMutableService);
             let obj: *mut Object = msg_send![cls, alloc];
-            let service: *mut Object = msg_send![obj, initWithType:NSString::from_str(&service.uuid.to_string())
+            let service: *mut Object = msg_send![obj, initWithType:service.uuid.into_cbuuid()
                                                            primary:YES];
             msg_send![service, setValue:NSArray::from_vec(characteristics)
                                  forKey:NSString::from_str("characteristics")];
-            msg_send![self.peripheral_manager_delegate, addService: service];
+
+            let peripheral_manager = *self
+                .peripheral_manager_delegate
+                .get_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
+
+            msg_send![peripheral_manager, addService: service];
         }
     }
 }
