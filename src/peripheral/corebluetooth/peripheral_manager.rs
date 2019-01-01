@@ -196,11 +196,11 @@ impl PeripheralManager {
             msg_send![service, setValue:NSArray::from_vec(characteristics)
                                  forKey:NSString::from_str("characteristics")];
 
-             let peripheral_manager = *self
-                 .peripheral_manager_delegate
-                 .get_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
+            let peripheral_manager = *self
+                .peripheral_manager_delegate
+                .get_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
 
-            msg_send![peripheral_manager, addService:service];
+            msg_send![peripheral_manager, addService: service];
         }
     }
 }

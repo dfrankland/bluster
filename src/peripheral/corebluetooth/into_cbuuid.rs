@@ -1,9 +1,4 @@
-use objc::{
-    class,
-    msg_send,
-    runtime::Object,
-    sel, sel_impl,
-};
+use objc::{class, msg_send, runtime::Object, sel, sel_impl};
 use objc_foundation::{INSString, NSString};
 use uuid::Uuid;
 
@@ -17,7 +12,7 @@ impl IntoCBUUID for Uuid {
         let cls = class!(CBUUID);
         unsafe {
             let obj: *mut Object = msg_send![cls, alloc];
-            msg_send![obj, initWithString:NSString::from_str(&uuid)]
+            msg_send![obj, initWithString: NSString::from_str(&uuid)]
         }
     }
 }
