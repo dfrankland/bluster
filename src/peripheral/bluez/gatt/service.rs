@@ -16,7 +16,7 @@ impl Service {
         tree: &mut common::Tree,
         service: &Arc<gatt::service::Service>,
     ) -> Result<Self, Error> {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
         let service_uuid = service.clone();
         let service_primary = service.clone();
@@ -43,7 +43,10 @@ impl Service {
             );
 
         let object_path = factory
-            .object_path(format!("{}/service{:04}", PATH_BASE, 0), ())
+            .object_path(
+                format!("{}/service{:04}", PATH_BASE, 0),
+                common::GattDataType::None,
+            )
             .add(get_all)
             .introspectable()
             .object_manager();
