@@ -47,7 +47,7 @@ fn it_advertises_gatt() {
         ))
         .unwrap();
 
-    let advertisement = future::loop_fn(&peripheral, |peripheral| {
+    let advertisement = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
         peripheral.is_powered().and_then(move |is_powered| {
             if is_powered {
                 println!("Peripheral powered on");
@@ -57,8 +57,13 @@ fn it_advertises_gatt() {
             }
         })
     })
-    .and_then(|_| peripheral.start_advertising(ADVERTISING_NAME, &[]))
-    .and_then(|advertising_stream| {
+    .and_then(|peripheral| {
+        let peripheral2 = Arc::clone(&peripheral);
+        peripheral
+            .start_advertising(ADVERTISING_NAME, &[])
+            .and_then(move |advertising_stream| Ok((advertising_stream, peripheral2)))
+    })
+    .and_then(|(advertising_stream, peripheral)| {
         let handled_advertising_stream = receiver
             .map(|event| {
                 match event {
@@ -87,7 +92,7 @@ fn it_advertises_gatt() {
         .into_future()
         .then(|_| Ok(()));
 
-        let advertising_check = future::loop_fn(&peripheral, move |peripheral| {
+        let advertising_check = future::loop_fn(Arc::clone(&peripheral), move |peripheral| {
             peripheral.is_advertising().and_then(move |is_advertising| {
                 if is_advertising {
                     println!("Peripheral started advertising \"{}\"", ADVERTISING_NAME);
@@ -99,12 +104,15 @@ fn it_advertises_gatt() {
         })
         .fuse();
 
-        advertising_check.join(advertising_timeout)
+        let peripheral2 = Arc::clone(&peripheral);
+        advertising_check
+            .join(advertising_timeout)
+            .and_then(move |_| Ok(peripheral2))
     })
-    .and_then(|_| {
+    .and_then(|peripheral| {
         let stop_advertising = peripheral.stop_advertising();
 
-        let advertising_check = future::loop_fn(&peripheral, |peripheral| {
+        let advertising_check = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
             peripheral.is_advertising().and_then(move |is_advertising| {
                 if !is_advertising {
                     println!("Peripheral stopped advertising");
