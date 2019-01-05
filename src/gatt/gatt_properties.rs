@@ -24,14 +24,14 @@ macro_rules! _properties {
     ($event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
         #[derive(Debug, Clone)]
         pub struct Properties {
-            pub(crate) read: Option<Secure>,
+            pub(crate) read: Option<Read>,
             pub(crate) write: Option<Write>,
             $(pub(crate) $member: Option<$member_type>,)*
         }
 
         impl Properties {
             pub fn new(
-                read: Option<Secure>,
+                read: Option<Read>,
                 write: Option<Write>,
                 $($member: Option<$member_type>,)*
             ) -> Self {
@@ -44,6 +44,23 @@ macro_rules! _properties {
 
             pub fn is_read_only(self: &Self) -> bool {
                 self.read.is_some() && self.write.is_none()
+            }
+        }
+
+        #[derive(Debug, Clone)]
+        pub struct Read(pub Secure);
+
+        impl Read {
+            pub fn sender(self: Self) -> $event_sender {
+                self.0.sender()
+            }
+        }
+
+        impl std::ops::Deref for Read {
+            type Target = Secure;
+
+            fn deref(&self) -> &Secure {
+                &self.0
             }
         }
 
