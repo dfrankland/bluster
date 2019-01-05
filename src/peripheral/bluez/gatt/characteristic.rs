@@ -15,7 +15,7 @@ use std::{
     sync::{Arc, Mutex},
     thread,
 };
-use tokio::runtime::current_thread::{block_on_all, Runtime};
+use tokio::runtime::current_thread::block_on_all;
 
 use super::{
     super::{
@@ -115,7 +115,7 @@ impl Characteristic {
                         let prop_info = PropInfo {
                             msg: &message,
                             method: &factory.method("Set", (), |_| Ok(vec![])),
-                            prop: &Arc::clone(&value_property),
+                            prop: &value_property,
                             iface: &factory.interface(GATT_CHARACTERISTIC_IFACE, ()),
                             path: &object_path,
                             tree: &factory.tree(ATree::new()),

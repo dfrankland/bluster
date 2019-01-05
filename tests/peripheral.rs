@@ -41,7 +41,7 @@ fn it_advertises_gatt() {
 
     let runtime = Arc::new(Mutex::new(Runtime::new().unwrap()));
 
-    let peripheral_future = Peripheral::new(Arc::clone(&runtime));
+    let peripheral_future = Peripheral::new(&runtime);
     let peripheral = Arc::new({ runtime.lock().unwrap().block_on(peripheral_future).unwrap() });
 
     peripheral

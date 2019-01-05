@@ -11,7 +11,6 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use tokio::runtime::current_thread::Runtime;
 
 use self::{
     application::Application, characteristic::Characteristic, descriptor::Descriptor,

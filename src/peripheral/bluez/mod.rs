@@ -22,7 +22,7 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
+    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
         let connection = match Connection::new(Arc::clone(&runtime)) {
             Ok(connection) => Arc::new(connection),
             Err(err) => return Box::new(future::Either::A(future::err(err))),
