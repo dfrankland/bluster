@@ -1,7 +1,7 @@
 use dbus::{BusType, Connection as SyncConnection};
 use dbus_tokio::AConnection as AsyncConnection;
 use std::rc::Rc;
-use tokio::{reactor::Handle, runtime::current_thread::Runtime};
+use tokio::{reactor, runtime::current_thread};
 
 use crate::Error;
 
@@ -12,14 +12,11 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(mut runtime: &mut Runtime) -> Result<Self, Error> {
-        let connection = Rc::new(SyncConnection::get_private(BusType::System)?);
-        let aconnection =
-            AsyncConnection::new(connection.clone(), Handle::current(), &mut runtime)?;
+    pub fn new(mut runtime: &mut current_thread::Runtime) -> Result<Self, Error> {
+        let fallback = Rc::new(SyncConnection::get_private(BusType::System)?);
+        let default =
+            AsyncConnection::new(fallback.clone(), reactor::Handle::current(), &mut runtime)?;
 
-        Ok(Connection {
-            fallback: connection,
-            default: aconnection,
-        })
+        Ok(Connection { fallback, default })
     }
 }

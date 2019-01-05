@@ -1,5 +1,5 @@
 use futures::{future, prelude::*, sync::mpsc::channel};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{collections::HashSet, sync::Arc, thread, time::Duration};
 use tokio::{runtime::current_thread::Runtime, timer::Timeout};
 use uuid::Uuid;
 
@@ -25,9 +25,9 @@ fn it_advertises_gatt() {
     characteristics.insert(Characteristic::new(
         Uuid::from_sdp_short_uuid(0x2A3D as u16),
         characteristic::Properties::new(
-            Some(characteristic::Secure::Insecure(sender)),
+            Some(characteristic::Secure::Insecure(sender.clone())),
             None,
-            None,
+            Some(sender.clone()),
             None,
         ),
         None,
@@ -40,11 +40,14 @@ fn it_advertises_gatt() {
     let peripheral = Arc::new(runtime.block_on(peripheral_future).unwrap());
 
     peripheral
-        .add_service(&Service::new(
-            Uuid::from_sdp_short_uuid(0x1234 as u16),
-            true,
-            characteristics,
-        ))
+        .add_service(
+            &mut runtime,
+            &Service::new(
+                Uuid::from_sdp_short_uuid(0x1234 as u16),
+                true,
+                characteristics,
+            ),
+        )
         .unwrap();
 
     let advertisement = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
@@ -77,6 +80,22 @@ fn it_advertises_gatt() {
                             .send(Response::Success("hi".into()))
                             .unwrap();
                         println!("GATT server responded with \"hi\"");
+                    }
+                    Event::NotifySubscribe(notify_subscribe) => {
+                        println!("GATT server got a notify subscription!");
+                        thread::spawn(move || {
+                            let mut count = 0;
+                            loop {
+                                count += 1;
+                                println!("GATT server notifying \"hi {}\"!", count);
+                                notify_subscribe
+                                    .clone()
+                                    .notification
+                                    .try_send(format!("hi {}", count).into())
+                                    .unwrap();
+                                thread::sleep(Duration::from_secs(2));
+                            }
+                        });
                     }
                     _ => panic!("Got some other event!"),
                 };

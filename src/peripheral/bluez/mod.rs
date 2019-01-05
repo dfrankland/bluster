@@ -83,7 +83,7 @@ impl Peripheral {
         Box::new(future::ok(self.advertisement.is_advertising()))
     }
 
-    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
-        self.gatt.add_service(service)
+    pub fn add_service(self: &Self, runtime: &mut Runtime, service: &Service) -> Result<(), Error> {
+        self.gatt.add_service(runtime, service)
     }
 }

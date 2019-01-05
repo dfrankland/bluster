@@ -1,21 +1,28 @@
 use dbus::{
-    arg::{RefArg, Variant},
-    tree::{Access, MethodErr},
+    arg::{Iter, RefArg, Variant},
+    tree::{Access, EmitsChangedSignal, MethodErr, PropInfo},
     Message, MessageItem, Path,
 };
-use dbus_tokio::tree::AFactory;
+use dbus_tokio::tree::{AFactory, ATree};
 use futures::{
+    future,
     prelude::*,
     sync::{mpsc, oneshot},
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    thread,
+};
+use tokio::runtime::current_thread::{block_on_all, Runtime};
 
 use super::{
     super::{
         common,
         constants::{
-            BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, BLUEZ_SERVICE_NAME,
-            DBUS_PROPERTIES_IFACE, GATT_CHARACTERISTIC_IFACE,
+            BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, DBUS_PROPERTIES_IFACE,
+            GATT_CHARACTERISTIC_IFACE,
         },
         Connection,
     },
@@ -30,20 +37,104 @@ pub struct Characteristic {
 
 impl Characteristic {
     pub fn new(
-        connection: Arc<Connection>,
+        runtime: &mut Runtime,
+        connection: &Arc<Connection>,
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Path<'static>,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
-        let mut object_path = factory.object_path(
-            format!("{}/characteristic{:04}", service, 0),
-            common::GattDataType::Characteristic(characteristic.clone()),
-        );
-        let object_path_name = object_path.get_name().clone();
+        // Setup value property for read / write by other methods
+        let value = Arc::new(Mutex::new(characteristic.value.clone()));
+        let value_property = {
+            let property = factory
+                .property::<&[u8], _>("Value", ())
+                .emits_changed(EmitsChangedSignal::True)
+                .access({
+                    let is_read_only_value =
+                        characteristic.properties.is_read_only() && characteristic.value.is_some();
+                    if is_read_only_value {
+                        Access::Read
+                    } else {
+                        Access::ReadWrite
+                    }
+                })
+                .on_get({
+                    let on_get_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = on_get_value
+                            .lock()
+                            .unwrap()
+                            .clone()
+                            .unwrap_or_else(Vec::new);
+                        i.append(value);
+                        Ok(())
+                    }
+                })
+                .on_set({
+                    let on_set_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = i.read()?;
+                        on_set_value.lock().unwrap().replace(value);
+                        Ok(())
+                    }
+                });
+            Arc::new(property)
+        };
 
-        let service_value = service.clone();
+        // Setup a channel for notifications
+        let (message_sender, message_receiver) = mpsc::channel(1);
+        {
+            let value_property = Arc::clone(&value_property);
+            let connection = Arc::clone(connection);
+            let object_path = factory.object_path(
+                format!("{}/characteristic{:04}", service, 0),
+                common::GattDataType::Characteristic(Arc::clone(characteristic)),
+            );
+            runtime.spawn(
+                message_receiver
+                    .map(move |notification: Vec<u8>| {
+                        let message = Message::new_method_call(
+                            connection.fallback.unique_name(),
+                            object_path.get_name(),
+                            DBUS_PROPERTIES_IFACE,
+                            "Set",
+                        )
+                        .unwrap()
+                        .append1(MessageItem::Variant(Box::new(
+                            MessageItem::new_array(
+                                notification
+                                    .iter()
+                                    .map(|b| MessageItem::Byte(*b))
+                                    .collect::<Vec<MessageItem>>(),
+                            )
+                            .unwrap(),
+                        )));
+
+                        let factory = AFactory::new_afn::<common::TData>();
+                        let prop_info = PropInfo {
+                            msg: &message,
+                            method: &factory.method("Set", (), |_| Ok(vec![])),
+                            prop: &Arc::clone(&value_property),
+                            iface: &factory.interface(GATT_CHARACTERISTIC_IFACE, ()),
+                            path: &object_path,
+                            tree: &factory.tree(ATree::new()),
+                        };
+                        let set_result =
+                            value_property.set_as_variant(&mut Iter::new(&message), &prop_info);
+                        if let Ok(emits_changed) = set_result {
+                            if let Some(emits_changed_message) = emits_changed {
+                                return future::Either::A(
+                                    Rc::clone(&connection.fallback).send(emits_changed_message),
+                                );
+                            }
+                        }
+                        future::Either::B(())
+                    })
+                    .for_each(|_| Ok(())),
+            );
+        }
 
         let gatt_characteristic = factory
             .interface(GATT_CHARACTERISTIC_IFACE, ())
@@ -132,8 +223,15 @@ impl Characteristic {
                 let notify_subscribe = gatt::event::NotifySubscribe {
                     notification: sender,
                 };
-                let connection = connection.clone();
-                let object_path_name = object_path_name.clone();
+
+                let message_sender = message_sender.clone();
+                thread::spawn(move || {
+                    for possible_notification in receiver.wait() {
+                        if let Ok(notification) = possible_notification {
+                            block_on_all(message_sender.clone().send(notification)).unwrap();
+                        }
+                    }
+                });
 
                 method_info
                     .path
@@ -147,35 +245,7 @@ impl Characteristic {
                     .and_then(move |event_sender| {
                         event_sender
                             .send(gatt::event::Event::NotifySubscribe(notify_subscribe))
-                            .map_err(|_| {
-                                MethodErr::from((BLUEZ_ERROR_FAILED, ""))
-                            })
-                    })
-                    .and_then(move |_| {
-                        receiver.for_each(move |notification| {
-                            let message = Message::new_method_call(
-                                BLUEZ_SERVICE_NAME,
-                                object_path_name.clone(),
-                                DBUS_PROPERTIES_IFACE,
-                                "Set",
-                            )
-                            .unwrap()
-                            .append3(
-                                GATT_CHARACTERISTIC_IFACE,
-                                "Value",
-                                notification,
-                            );
-
-                            connection
-                                .clone()
-                                .default
-                                .method_call(message)
-                                .unwrap()
-                                .then(|_| Ok(()))
-                        })
-                        .map_err(|_| {
-                            MethodErr::from((BLUEZ_ERROR_FAILED, ""))
-                        })
+                            .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
                     })
                     .and_then(|_| Ok(vec![]))
             }))
@@ -212,15 +282,16 @@ impl Characteristic {
                         Ok(())
                     }),
             )
-            .add_p(
+            .add_p({
+                let service = service.clone();
                 factory
                     .property::<Path<'static>, _>("Service", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&service_value);
+                        i.append(&service);
                         Ok(())
-                    }),
-            )
+                    })
+            })
             .add_p(
                 factory
                     .property::<&[&str], _>("Flags", ())
@@ -237,27 +308,13 @@ impl Characteristic {
                         Ok(())
                     }),
             )
-            .add_p({
-                let property = factory.property::<&[u8], _>("Value", ());
-                if characteristic.properties.is_read_only() && characteristic.value.is_some() {
-                    property.access(Access::Read).on_get(move |i, prop_info| {
-                        i.append(
-                            &prop_info
-                                .path
-                                .get_data()
-                                .get_characteristic()
-                                .value
-                                .clone()
-                                .unwrap_or_else(Vec::new),
-                        );
-                        Ok(())
-                    })
-                } else {
-                    property.access(Access::ReadWrite)
-                }
-            });
+            .add_p(Arc::clone(&value_property));
 
-        object_path = object_path
+        let object_path = factory
+            .object_path(
+                format!("{}/characteristic{:04}", service, 0),
+                common::GattDataType::Characteristic(Arc::clone(characteristic)),
+            )
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();

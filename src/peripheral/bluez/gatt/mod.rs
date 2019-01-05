@@ -11,6 +11,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
+use tokio::runtime::current_thread::Runtime;
 
 use self::{
     application::Application, characteristic::Characteristic, descriptor::Descriptor,
@@ -39,7 +40,11 @@ impl Gatt {
         }
     }
 
-    pub fn add_service(self: &Self, service: &gatt::service::Service) -> Result<(), Error> {
+    pub fn add_service(
+        self: &Self,
+        runtime: &mut Runtime,
+        service: &gatt::service::Service,
+    ) -> Result<(), Error> {
         let mut tree = self.tree.lock().unwrap();
         let tree = tree.as_mut().unwrap();
 
@@ -47,7 +52,8 @@ impl Gatt {
 
         for characteristic in service.characteristics.iter() {
             let gatt_characteristic = Characteristic::new(
-                self.connection.clone(),
+                runtime,
+                &self.connection.clone(),
                 tree,
                 &Arc::new(characteristic.clone()),
                 &Arc::new(gatt_service.object_path.clone()),
