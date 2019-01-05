@@ -11,7 +11,7 @@ impl Flags for CharacteristicProperties {
     fn flags(self: &Self) -> Vec<String> {
         let mut flags = vec![];
         if let Some(ref read) = self.read {
-            let read_flag = match read {
+            let read_flag = match read.0 {
                 characteristic::Secure::Secure(_) => "secure-read",
                 characteristic::Secure::Insecure(_) => "read",
             };
@@ -45,7 +45,7 @@ impl Flags for DescriptorProperties {
     fn flags(self: &Self) -> Vec<String> {
         let mut flags = vec![];
         if let Some(ref read) = self.read {
-            let read_flag = match read {
+            let read_flag = match read.0 {
                 descriptor::Secure::Secure(_) => "secure-read",
                 descriptor::Secure::Insecure(_) => "read",
             };

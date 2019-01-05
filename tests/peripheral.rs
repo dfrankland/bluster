@@ -30,8 +30,8 @@ fn it_advertises_gatt() {
     characteristics.insert(Characteristic::new(
         Uuid::from_sdp_short_uuid(0x2A3D as u16),
         characteristic::Properties::new(
-            Some(characteristic::Secure::Insecure(sender.clone())),
-            None,
+            Some(characteristic::Read(characteristic::Secure::Insecure(sender.clone()))),
+            Some(characteristic::Write::WithResponse(characteristic::Secure::Insecure(sender.clone()))),
             Some(sender.clone()),
             None,
         ),
@@ -69,6 +69,7 @@ fn it_advertises_gatt() {
             .and_then(move |advertising_stream| Ok((advertising_stream, peripheral2)))
     })
     .and_then(|(advertising_stream, peripheral)| {
+        let value = Arc::new(Mutex::new(String::from("hi")));
         let notifying = Arc::new(atomic::AtomicBool::new(false));
         let handled_advertising_stream = receiver
             .map(move |event| {
@@ -78,11 +79,25 @@ fn it_advertises_gatt() {
                             "GATT server got a read request with offset {}!",
                             read_request.offset
                         );
+                        let value = value.lock().unwrap().clone();
                         read_request
                             .response
-                            .send(Response::Success("hi".into()))
+                            .send(Response::Success(value.clone().into()))
                             .unwrap();
-                        println!("GATT server responded with \"hi\"");
+                        println!("GATT server responded with \"{}\"", value);
+                    }
+                    Event::WriteRequest(write_request) => {
+                        let new_value = String::from_utf8(write_request.data).unwrap();
+                        println!(
+                            "GATT server got a write request with offset {} and data {}!",
+                            write_request.offset,
+                            new_value,
+                        );
+                        *value.lock().unwrap() = new_value;
+                        write_request
+                            .response
+                            .send(Response::Success(vec![]))
+                            .unwrap();
                     }
                     Event::NotifySubscribe(notify_subscribe) => {
                         println!("GATT server got a notify subscription!");
@@ -107,7 +122,6 @@ fn it_advertises_gatt() {
                         println!("GATT server got a notify unsubscribe!");
                         notifying.store(false, atomic::Ordering::Relaxed);
                     }
-                    _ => panic!("Got some other event!"),
                 };
             })
             .map_err(bluster::Error::from)
