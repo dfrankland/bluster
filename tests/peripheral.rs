@@ -1,7 +1,7 @@
 use futures::{future, prelude::*, sync::mpsc::channel};
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic},
     thread,
     time::Duration,
 };
@@ -69,8 +69,9 @@ fn it_advertises_gatt() {
             .and_then(move |advertising_stream| Ok((advertising_stream, peripheral2)))
     })
     .and_then(|(advertising_stream, peripheral)| {
+        let notifying = Arc::new(atomic::AtomicBool::new(false));
         let handled_advertising_stream = receiver
-            .map(|event| {
+            .map(move |event| {
                 match event {
                     Event::ReadRequest(read_request) => {
                         println!(
@@ -85,9 +86,12 @@ fn it_advertises_gatt() {
                     }
                     Event::NotifySubscribe(notify_subscribe) => {
                         println!("GATT server got a notify subscription!");
+                        let notifying = Arc::clone(&notifying);
+                        notifying.store(true, atomic::Ordering::Relaxed);
                         thread::spawn(move || {
                             let mut count = 0;
                             loop {
+                                if !(&notifying).load(atomic::Ordering::Relaxed) { break };
                                 count += 1;
                                 println!("GATT server notifying \"hi {}\"!", count);
                                 notify_subscribe
@@ -98,6 +102,10 @@ fn it_advertises_gatt() {
                                 thread::sleep(Duration::from_secs(2));
                             }
                         });
+                    }
+                    Event::NotifyUnsubscribe => {
+                        println!("GATT server got a notify unsubscribe!");
+                        notifying.store(false, atomic::Ordering::Relaxed);
                     }
                     _ => panic!("Got some other event!"),
                 };
