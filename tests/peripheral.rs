@@ -1,5 +1,10 @@
 use futures::{future, prelude::*, sync::mpsc::channel};
-use std::{collections::HashSet, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 use tokio::{runtime::current_thread::Runtime, timer::Timeout};
 use uuid::Uuid;
 
@@ -25,19 +30,19 @@ fn it_advertises_gatt() {
     characteristics.insert(Characteristic::new(
         Uuid::from_sdp_short_uuid(0x2A3D as u16),
         characteristic::Properties::new(
-            Some(characteristic::Secure::Insecure(sender)),
+            Some(characteristic::Secure::Insecure(sender.clone())),
             None,
-            None,
+            Some(sender.clone()),
             None,
         ),
         None,
         HashSet::<Descriptor>::new(),
     ));
 
-    let mut runtime = Runtime::new().unwrap();
+    let runtime = Arc::new(Mutex::new(Runtime::new().unwrap()));
 
-    let peripheral_future = Peripheral::new(&mut runtime);
-    let peripheral = Arc::new(runtime.block_on(peripheral_future).unwrap());
+    let peripheral_future = Peripheral::new(&runtime);
+    let peripheral = Arc::new({ runtime.lock().unwrap().block_on(peripheral_future).unwrap() });
 
     peripheral
         .add_service(&Service::new(
@@ -47,7 +52,7 @@ fn it_advertises_gatt() {
         ))
         .unwrap();
 
-    let advertisement = future::loop_fn(&peripheral, |peripheral| {
+    let advertisement = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
         peripheral.is_powered().and_then(move |is_powered| {
             if is_powered {
                 println!("Peripheral powered on");
@@ -57,8 +62,13 @@ fn it_advertises_gatt() {
             }
         })
     })
-    .and_then(|_| peripheral.start_advertising(ADVERTISING_NAME, &[]))
-    .and_then(|advertising_stream| {
+    .and_then(|peripheral| {
+        let peripheral2 = Arc::clone(&peripheral);
+        peripheral
+            .start_advertising(ADVERTISING_NAME, &[])
+            .and_then(move |advertising_stream| Ok((advertising_stream, peripheral2)))
+    })
+    .and_then(|(advertising_stream, peripheral)| {
         let handled_advertising_stream = receiver
             .map(|event| {
                 match event {
@@ -72,6 +82,22 @@ fn it_advertises_gatt() {
                             .send(Response::Success("hi".into()))
                             .unwrap();
                         println!("GATT server responded with \"hi\"");
+                    }
+                    Event::NotifySubscribe(notify_subscribe) => {
+                        println!("GATT server got a notify subscription!");
+                        thread::spawn(move || {
+                            let mut count = 0;
+                            loop {
+                                count += 1;
+                                println!("GATT server notifying \"hi {}\"!", count);
+                                notify_subscribe
+                                    .clone()
+                                    .notification
+                                    .try_send(format!("hi {}", count).into())
+                                    .unwrap();
+                                thread::sleep(Duration::from_secs(2));
+                            }
+                        });
                     }
                     _ => panic!("Got some other event!"),
                 };
@@ -87,7 +113,7 @@ fn it_advertises_gatt() {
         .into_future()
         .then(|_| Ok(()));
 
-        let advertising_check = future::loop_fn(&peripheral, move |peripheral| {
+        let advertising_check = future::loop_fn(Arc::clone(&peripheral), move |peripheral| {
             peripheral.is_advertising().and_then(move |is_advertising| {
                 if is_advertising {
                     println!("Peripheral started advertising \"{}\"", ADVERTISING_NAME);
@@ -99,12 +125,15 @@ fn it_advertises_gatt() {
         })
         .fuse();
 
-        advertising_check.join(advertising_timeout)
+        let peripheral2 = Arc::clone(&peripheral);
+        advertising_check
+            .join(advertising_timeout)
+            .and_then(move |_| Ok(peripheral2))
     })
-    .and_then(|_| {
+    .and_then(|peripheral| {
         let stop_advertising = peripheral.stop_advertising();
 
-        let advertising_check = future::loop_fn(&peripheral, |peripheral| {
+        let advertising_check = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
             peripheral.is_advertising().and_then(move |is_advertising| {
                 if !is_advertising {
                     println!("Peripheral stopped advertising");
@@ -119,5 +148,5 @@ fn it_advertises_gatt() {
         advertising_check.join(stop_advertising)
     });
 
-    runtime.block_on(advertisement).unwrap();
+    runtime.lock().unwrap().block_on(advertisement).unwrap();
 }

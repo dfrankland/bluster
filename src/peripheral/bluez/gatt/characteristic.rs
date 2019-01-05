@@ -1,18 +1,32 @@
 use dbus::{
-    arg::{RefArg, Variant},
-    tree::{Access, MethodErr},
-    MessageItem, Path,
+    arg::{Iter, RefArg, Variant},
+    tree::{Access, EmitsChangedSignal, MethodErr, PropInfo},
+    Message, MessageItem, Path,
 };
-use dbus_tokio::tree::AFactory;
-use futures::{prelude::*, sync::oneshot::channel};
-use std::{collections::HashMap, sync::Arc};
+use dbus_tokio::tree::{AFactory, ATree};
+use futures::{
+    future,
+    prelude::*,
+    sync::{mpsc, oneshot},
+};
+use std::{
+    collections::HashMap,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    thread,
+};
+use tokio::runtime::current_thread::block_on_all;
 
 use super::{
-    flags::Flags,
     super::{
         common,
-        constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_CHARACTERISTIC_IFACE},
+        constants::{
+            BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, DBUS_PROPERTIES_IFACE,
+            GATT_CHARACTERISTIC_IFACE,
+        },
+        Connection,
     },
+    flags::Flags,
 };
 use crate::{gatt, Error};
 
@@ -23,20 +37,105 @@ pub struct Characteristic {
 
 impl Characteristic {
     pub fn new(
+        connection: &Arc<Connection>,
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Path<'static>,
     ) -> Result<Self, Error> {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
-        let read_value = characteristic.properties.read.clone();
-        let write_value = characteristic.properties.write.clone();
-        let flags_value = characteristic.properties.flags().clone();
-        let uuid_value = characteristic.uuid.to_string();
-        let service_value = service.clone();
-        let initial_value = characteristic.value.clone().unwrap_or_else(Vec::new);
+        // Setup value property for read / write by other methods
+        let value = Arc::new(Mutex::new(characteristic.value.clone()));
+        let value_property = {
+            let property = factory
+                .property::<&[u8], _>("Value", ())
+                .emits_changed(EmitsChangedSignal::True)
+                .access({
+                    let is_read_only_value =
+                        characteristic.properties.is_read_only() && characteristic.value.is_some();
+                    if is_read_only_value {
+                        Access::Read
+                    } else {
+                        Access::ReadWrite
+                    }
+                })
+                .on_get({
+                    let on_get_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = on_get_value
+                            .lock()
+                            .unwrap()
+                            .clone()
+                            .unwrap_or_else(Vec::new);
+                        i.append(value);
+                        Ok(())
+                    }
+                })
+                .on_set({
+                    let on_set_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = i.read()?;
+                        on_set_value.lock().unwrap().replace(value);
+                        Ok(())
+                    }
+                });
+            Arc::new(property)
+        };
 
-        let mut gatt_characteristic = factory
+        // Setup a channel for notifications
+        let (message_sender, message_receiver) = mpsc::channel(1);
+        {
+            let value_property = Arc::clone(&value_property);
+            let connection = Arc::clone(connection);
+            let object_path = factory.object_path(
+                format!("{}/characteristic{:04}", service, 0),
+                common::GattDataType::Characteristic(Arc::clone(characteristic)),
+            );
+            Arc::clone(&connection).runtime.lock().unwrap().spawn(
+                message_receiver
+                    .map(move |notification: Vec<u8>| {
+                        let message = Message::new_method_call(
+                            connection.fallback.unique_name(),
+                            object_path.get_name(),
+                            DBUS_PROPERTIES_IFACE,
+                            "Set",
+                        )
+                        .unwrap()
+                        .append1(MessageItem::Variant(Box::new(
+                            MessageItem::new_array(
+                                notification
+                                    .iter()
+                                    .map(|b| MessageItem::Byte(*b))
+                                    .collect::<Vec<MessageItem>>(),
+                            )
+                            .unwrap(),
+                        )));
+
+                        let factory = AFactory::new_afn::<common::TData>();
+                        let prop_info = PropInfo {
+                            msg: &message,
+                            method: &factory.method("Set", (), |_| Ok(vec![])),
+                            prop: &value_property,
+                            iface: &factory.interface(GATT_CHARACTERISTIC_IFACE, ()),
+                            path: &object_path,
+                            tree: &factory.tree(ATree::new()),
+                        };
+                        let set_result =
+                            value_property.set_as_variant(&mut Iter::new(&message), &prop_info);
+                        if let Ok(emits_changed) = set_result {
+                            if let Some(emits_changed_message) = emits_changed {
+                                return future::Either::A(
+                                    Rc::clone(&connection.fallback).send(emits_changed_message),
+                                );
+                            }
+                        }
+                        future::Either::B(())
+                    })
+                    .for_each(|_| Ok(())),
+            );
+        }
+
+        let gatt_characteristic = factory
             .interface(GATT_CHARACTERISTIC_IFACE, ())
             .add_m(factory.amethod("ReadValue", (), move |method_info| {
                 let offset = method_info
@@ -48,12 +147,17 @@ impl Characteristic {
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 
-                read_value
+                method_info
+                    .path
+                    .get_data()
+                    .get_characteristic()
+                    .properties
+                    .read
                     .clone()
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
                     .and_then(move |event_sender| {
-                        let (sender, receiver) = channel();
+                        let (sender, receiver) = oneshot::channel();
                         event_sender
                             .sender()
                             .send(gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
@@ -82,12 +186,17 @@ impl Characteristic {
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 
-                write_value
+                method_info
+                    .path
+                    .get_data()
+                    .get_characteristic()
+                    .properties
+                    .write
                     .clone()
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
                     .and_then(move |event_sender| {
-                        let (sender, receiver) = channel();
+                        let (sender, receiver) = oneshot::channel();
                         event_sender
                             .sender()
                             .send(gatt::event::Event::WriteRequest(
@@ -108,48 +217,103 @@ impl Characteristic {
                         _ => Err(MethodErr::from((BLUEZ_ERROR_FAILED, ""))),
                     })
             }))
+            .add_m(factory.amethod("StartNotify", (), move |method_info| {
+                let (sender, receiver) = mpsc::channel(1);
+                let notify_subscribe = gatt::event::NotifySubscribe {
+                    notification: sender,
+                };
+
+                let message_sender = message_sender.clone();
+                thread::spawn(move || {
+                    for possible_notification in receiver.wait() {
+                        if let Ok(notification) = possible_notification {
+                            block_on_all(message_sender.clone().send(notification)).unwrap();
+                        }
+                    }
+                });
+
+                method_info
+                    .path
+                    .get_data()
+                    .get_characteristic()
+                    .properties
+                    .notify
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        event_sender
+                            .send(gatt::event::Event::NotifySubscribe(notify_subscribe))
+                            .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                    })
+                    .and_then(|_| Ok(vec![]))
+            }))
+            .add_m(factory.amethod("StopNotify", (), move |method_info| {
+                method_info
+                    .path
+                    .get_data()
+                    .get_characteristic()
+                    .properties
+                    .notify
+                    .clone()
+                    .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
+                    .into_future()
+                    .and_then(move |event_sender| {
+                        event_sender
+                            .send(gatt::event::Event::NotifyUnsubscribe)
+                            .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))
+                    })
+                    .and_then(|_| Ok(vec![]))
+            }))
             .add_p(
                 factory
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&uuid_value);
+                    .on_get(move |i, prop_info| {
+                        i.append(
+                            &prop_info
+                                .path
+                                .get_data()
+                                .get_characteristic()
+                                .uuid
+                                .to_string(),
+                        );
                         Ok(())
                     }),
             )
-            .add_p(
+            .add_p({
+                let service = service.clone();
                 factory
                     .property::<Path<'static>, _>("Service", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&service_value);
+                        i.append(&service);
                         Ok(())
-                    }),
-            )
+                    })
+            })
             .add_p(
                 factory
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&flags_value);
+                    .on_get(move |i, prop_info| {
+                        i.append(
+                            &prop_info
+                                .path
+                                .get_data()
+                                .get_characteristic()
+                                .properties
+                                .flags(),
+                        );
                         Ok(())
                     }),
-            );
-
-        if characteristic.properties.is_read_only() && characteristic.value.is_some() {
-            gatt_characteristic = gatt_characteristic.add_p(
-                factory
-                    .property::<&[u8], _>("Value", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&initial_value);
-                        Ok(())
-                    }),
-            );
-        }
+            )
+            .add_p(Arc::clone(&value_property));
 
         let object_path = factory
-            .object_path(format!("{}/characteristic{:04}", service, 0), ())
+            .object_path(
+                format!("{}/characteristic{:04}", service, 0),
+                common::GattDataType::Characteristic(Arc::clone(characteristic)),
+            )
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();

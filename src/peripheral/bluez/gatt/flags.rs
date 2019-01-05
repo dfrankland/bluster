@@ -24,9 +24,7 @@ impl Flags for CharacteristicProperties {
                     characteristic::Secure::Secure(_) => "secure-write",
                     characteristic::Secure::Insecure(_) => "write",
                 },
-                characteristic::Write::WithoutResponse(_) => {
-                    "write-without-response"
-                }
+                characteristic::Write::WithoutResponse(_) => "write-without-response",
             };
             flags.push(write_flag);
         }

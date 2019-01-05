@@ -35,7 +35,7 @@ pub struct Advertisement {
 
 impl Advertisement {
     pub fn new(connection: Arc<Connection>, adapter: Path<'static>) -> Self {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
         let is_advertising = Arc::new(AtomicBool::new(false));
         let is_advertising_release = is_advertising.clone();
@@ -89,7 +89,10 @@ impl Advertisement {
             );
 
         let object_path = factory
-            .object_path(format!("{}/advertisement{:04}", PATH_BASE, 0), ())
+            .object_path(
+                format!("{}/advertisement{:04}", PATH_BASE, 0),
+                common::GattDataType::None,
+            )
             .add(advertisement);
         let path = object_path.get_name().clone();
         let tree = factory.tree(ATree::new()).add(object_path);

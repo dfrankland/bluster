@@ -1,13 +1,13 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{MTFn, Tree},
     Message, Path,
 };
-use dbus_tokio::tree::{AFactory, ATree};
+use dbus_tokio::tree::AFactory;
 use futures::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::{
+    common,
     constants::{BLUEZ_SERVICE_NAME, GATT_GATT_MANAGER_IFACE, PATH_BASE},
     Connection, Error,
 };
@@ -22,13 +22,13 @@ pub struct Application {
 impl Application {
     pub fn new(
         connection: Arc<Connection>,
-        tree: &mut Tree<MTFn<ATree<()>>, ATree<()>>,
+        tree: &mut common::Tree,
         adapter: Path<'static>,
     ) -> Self {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
         let object_path = factory
-            .object_path(PATH_BASE, ())
+            .object_path(PATH_BASE, common::GattDataType::None)
             .introspectable()
             .object_manager();
 

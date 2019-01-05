@@ -7,7 +7,7 @@ mod error;
 mod gatt;
 
 use futures::{future, prelude::*};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
@@ -22,8 +22,8 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: &mut Runtime) -> Box<impl Future<Item = Self, Error = Error>> {
-        let connection = match Connection::new(runtime) {
+    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
+        let connection = match Connection::new(Arc::clone(&runtime)) {
             Ok(connection) => Arc::new(connection),
             Err(err) => return Box::new(future::Either::A(future::err(err))),
         };

@@ -8,11 +8,11 @@ use futures::{prelude::*, sync::oneshot::channel};
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
-    flags::Flags,
     super::{
         common,
         constants::{BLUEZ_ERROR_FAILED, BLUEZ_ERROR_NOTSUPPORTED, GATT_DESCRIPTOR_IFACE},
     },
+    flags::Flags,
 };
 use crate::{gatt, Error};
 
@@ -27,7 +27,7 @@ impl Descriptor {
         descriptor: &Arc<gatt::descriptor::Descriptor>,
         characteristic: &Path<'static>,
     ) -> Result<Self, Error> {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
         let read_value = descriptor.properties.read.clone();
         let write_value = descriptor.properties.write.clone();
@@ -151,7 +151,7 @@ impl Descriptor {
         let object_path = factory
             .object_path(
                 format!("{}/descriptor{:04}", characteristic.to_string(), 0),
-                (),
+                common::GattDataType::None,
             )
             .add(gatt_descriptor)
             .introspectable()

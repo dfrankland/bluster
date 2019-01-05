@@ -1,8 +1,8 @@
 mod application;
 mod characteristic;
 mod descriptor;
-mod service;
 mod flags;
+mod service;
 
 use dbus::Path;
 use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
@@ -29,7 +29,7 @@ pub struct Gatt {
 
 impl Gatt {
     pub fn new(connection: Arc<Connection>, adapter: Path<'static>) -> Self {
-        let factory = AFactory::new_afn::<()>();
+        let factory = AFactory::new_afn::<common::TData>();
 
         Gatt {
             adapter,
@@ -47,6 +47,7 @@ impl Gatt {
 
         for characteristic in service.characteristics.iter() {
             let gatt_characteristic = Characteristic::new(
+                &self.connection.clone(),
                 tree,
                 &Arc::new(characteristic.clone()),
                 &Arc::new(gatt_service.object_path.clone()),
