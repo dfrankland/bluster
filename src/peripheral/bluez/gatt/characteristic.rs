@@ -37,7 +37,6 @@ pub struct Characteristic {
 
 impl Characteristic {
     pub fn new(
-        runtime: &mut Runtime,
         connection: &Arc<Connection>,
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
@@ -92,7 +91,7 @@ impl Characteristic {
                 format!("{}/characteristic{:04}", service, 0),
                 common::GattDataType::Characteristic(Arc::clone(characteristic)),
             );
-            runtime.spawn(
+            Arc::clone(&connection).runtime.lock().unwrap().spawn(
                 message_receiver
                     .map(move |notification: Vec<u8>| {
                         let message = Message::new_method_call(

@@ -40,11 +40,7 @@ impl Gatt {
         }
     }
 
-    pub fn add_service(
-        self: &Self,
-        runtime: &mut Runtime,
-        service: &gatt::service::Service,
-    ) -> Result<(), Error> {
+    pub fn add_service(self: &Self, service: &gatt::service::Service) -> Result<(), Error> {
         let mut tree = self.tree.lock().unwrap();
         let tree = tree.as_mut().unwrap();
 
@@ -52,7 +48,6 @@ impl Gatt {
 
         for characteristic in service.characteristics.iter() {
             let gatt_characteristic = Characteristic::new(
-                runtime,
                 &self.connection.clone(),
                 tree,
                 &Arc::new(characteristic.clone()),

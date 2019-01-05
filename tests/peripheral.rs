@@ -1,5 +1,10 @@
 use futures::{future, prelude::*, sync::mpsc::channel};
-use std::{collections::HashSet, sync::Arc, thread, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 use tokio::{runtime::current_thread::Runtime, timer::Timeout};
 use uuid::Uuid;
 
@@ -34,20 +39,17 @@ fn it_advertises_gatt() {
         HashSet::<Descriptor>::new(),
     ));
 
-    let mut runtime = Runtime::new().unwrap();
+    let runtime = Arc::new(Mutex::new(Runtime::new().unwrap()));
 
-    let peripheral_future = Peripheral::new(&mut runtime);
-    let peripheral = Arc::new(runtime.block_on(peripheral_future).unwrap());
+    let peripheral_future = Peripheral::new(Arc::clone(&runtime));
+    let peripheral = Arc::new({ runtime.lock().unwrap().block_on(peripheral_future).unwrap() });
 
     peripheral
-        .add_service(
-            &mut runtime,
-            &Service::new(
-                Uuid::from_sdp_short_uuid(0x1234 as u16),
-                true,
-                characteristics,
-            ),
-        )
+        .add_service(&Service::new(
+            Uuid::from_sdp_short_uuid(0x1234 as u16),
+            true,
+            characteristics,
+        ))
         .unwrap();
 
     let advertisement = future::loop_fn(Arc::clone(&peripheral), |peripheral| {
@@ -146,5 +148,5 @@ fn it_advertises_gatt() {
         advertising_check.join(stop_advertising)
     });
 
-    runtime.block_on(advertisement).unwrap();
+    runtime.lock().unwrap().block_on(advertisement).unwrap();
 }
