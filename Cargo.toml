@@ -7,7 +7,7 @@ license = "MIT"
 description = "A Rust crate for implementing BLE (Bluetooth Low Energy) peripherals"
 homepage = "https://github.com/dfrankland/bluster"
 repository = "https://github.com/dfrankland/bluster"
-keywords = ["BLE", "Bluetooth", "Low", "Energy", "peripheral", "macOS", "Linux", "Windows", "Bluez", "CoreBluetooth", "USB", "HCI"]
+keywords = ["BLE", "Bluetooth", "Bluez", "CoreBluetooth", "USB"]
 categories = ["os", "api-bindings", "hardware-support"]
 [dependencies]
 futures = "0.1.25"
