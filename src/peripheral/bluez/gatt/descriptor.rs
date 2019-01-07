@@ -1,11 +1,11 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::{Access, MethodErr},
+    tree::{Access, EmitsChangedSignal, MethodErr},
     MessageItem, Path,
 };
 use dbus_tokio::tree::AFactory;
 use futures::{prelude::*, sync::oneshot::channel};
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::{Arc, Mutex}};
 
 use super::{
     super::{
@@ -29,14 +29,45 @@ impl Descriptor {
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
-        let read_value = descriptor.properties.read.clone();
-        let write_value = descriptor.properties.write.clone();
-        let flags_value = descriptor.properties.flags().clone();
-        let uuid_value = descriptor.uuid.to_string();
-        let characteristic_value = characteristic.clone();
-        let intial_value = descriptor.value.clone().unwrap_or_else(Vec::new);
+        // Setup value property for read / write by other methods
+        let value = Arc::new(Mutex::new(descriptor.value.clone()));
+        let value_property = {
+            let property = factory
+                .property::<&[u8], _>("Value", ())
+                .emits_changed(EmitsChangedSignal::True)
+                .access({
+                    let is_read_only_value =
+                        descriptor.properties.is_read_only() && descriptor.value.is_some();
+                    if is_read_only_value {
+                        Access::Read
+                    } else {
+                        Access::ReadWrite
+                    }
+                })
+                .on_get({
+                    let on_get_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = on_get_value
+                            .lock()
+                            .unwrap()
+                            .clone()
+                            .unwrap_or_else(Vec::new);
+                        i.append(value);
+                        Ok(())
+                    }
+                })
+                .on_set({
+                    let on_set_value = Arc::clone(&value);
+                    move |i, _| {
+                        let value = i.read()?;
+                        on_set_value.lock().unwrap().replace(value);
+                        Ok(())
+                    }
+                });
+            Arc::new(property)
+        };
 
-        let mut gatt_descriptor = factory
+        let gatt_descriptor = factory
             .interface(GATT_DESCRIPTOR_IFACE, ())
             .add_m(factory.amethod("ReadValue", (), move |method_info| {
                 let offset = method_info
@@ -48,7 +79,12 @@ impl Descriptor {
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 
-                read_value
+                method_info
+                    .path
+                    .get_data()
+                    .get_descriptor()
+                    .properties
+                    .read
                     .clone()
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
@@ -82,7 +118,12 @@ impl Descriptor {
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 
-                write_value
+                method_info
+                    .path
+                    .get_data()
+                    .get_descriptor()
+                    .properties
+                    .write
                     .clone()
                     .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))
                     .into_future()
@@ -112,46 +153,47 @@ impl Descriptor {
                 factory
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&uuid_value);
+                    .on_get(move |i, prop_info| {
+                        i.append(&prop_info
+                            .path
+                            .get_data()
+                            .get_descriptor()
+                            .uuid
+                            .to_string());
                         Ok(())
                     }),
             )
-            .add_p(
+            .add_p({
+                let characteristic = characteristic.clone();
                 factory
                     .property::<Path<'static>, _>("Characteristic", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append(&characteristic_value);
+                        i.append(&characteristic);
                         Ok(())
-                    }),
-            )
+                    })
+            })
             .add_p(
                 factory
                     .property::<&[&str], _>("Flags", ())
                     .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&flags_value);
+                    .on_get(move |i, prop_info| {
+                        i.append(
+                            &prop_info
+                                .path
+                                .get_data()
+                                .get_descriptor()
+                                .properties
+                                .flags(),
+                        );
                         Ok(())
                     }),
-            );
-
-        if descriptor.properties.is_read_only() && descriptor.value.is_some() {
-            gatt_descriptor = gatt_descriptor.add_p(
-                factory
-                    .property::<&[u8], _>("Value", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(&intial_value);
-                        Ok(())
-                    }),
-            );
-        }
+            ).add_p(Arc::clone(&value_property));
 
         let object_path = factory
             .object_path(
                 format!("{}/descriptor{:04}", characteristic.to_string(), 0),
-                common::GattDataType::None,
+                common::GattDataType::Descriptor(Arc::clone(descriptor)),
             )
             .add(gatt_descriptor)
             .introspectable()
