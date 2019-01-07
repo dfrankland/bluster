@@ -18,29 +18,28 @@ impl Service {
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
-        let service_uuid = service.clone();
-        let service_primary = service.clone();
-
         let get_all = factory
             .interface(GATT_SERVICE_IFACE, ())
-            .add_p(
+            .add_p({
+                let service = Arc::clone(service);
                 factory
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*service_uuid).uuid.to_string());
+                        i.append(service.uuid.to_string());
                         Ok(())
-                    }),
-            )
-            .add_p(
+                    })
+            })
+            .add_p({
+                let service = service.clone();
                 factory
                     .property::<bool, _>("Primary", ())
                     .access(Access::Read)
                     .on_get(move |i, _| {
-                        i.append((*service_primary).primary);
+                        i.append(service.primary);
                         Ok(())
-                    }),
-            );
+                    })
+            });
 
         let object_path = factory
             .object_path(

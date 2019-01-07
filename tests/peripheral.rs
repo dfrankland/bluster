@@ -12,6 +12,7 @@ use bluster::{
     gatt::{
         characteristic,
         characteristic::Characteristic,
+        descriptor,
         descriptor::Descriptor,
         event::{Event, Response},
         service::Service,
@@ -24,19 +25,31 @@ const ADVERTISING_TIMEOUT: u64 = 60;
 
 #[test]
 fn it_advertises_gatt() {
-    let (sender, receiver) = channel(1);
+    let (sender_characteristic, receiver_characteristic) = channel(1);
+    let (sender_descriptor, receiver_descriptor) = channel(1);
 
     let mut characteristics: HashSet<Characteristic> = HashSet::new();
     characteristics.insert(Characteristic::new(
         Uuid::from_sdp_short_uuid(0x2A3D as u16),
         characteristic::Properties::new(
-            Some(characteristic::Read(characteristic::Secure::Insecure(sender.clone()))),
-            Some(characteristic::Write::WithResponse(characteristic::Secure::Insecure(sender.clone()))),
-            Some(sender.clone()),
+            Some(characteristic::Read(characteristic::Secure::Insecure(sender_characteristic.clone()))),
+            Some(characteristic::Write::WithResponse(characteristic::Secure::Insecure(sender_characteristic.clone()))),
+            Some(sender_characteristic.clone()),
             None,
         ),
         None,
-        HashSet::<Descriptor>::new(),
+        {
+            let mut descriptors = HashSet::<Descriptor>::new();
+            descriptors.insert(Descriptor::new(
+                Uuid::from_sdp_short_uuid(0x2A3D as u16),
+                descriptor::Properties::new(
+                    Some(descriptor::Read(descriptor::Secure::Insecure(sender_descriptor.clone()))),
+                    Some(descriptor::Write(descriptor::Secure::Insecure(sender_descriptor.clone()))),
+                ),
+                None
+            ));
+            descriptors
+        },
     ));
 
     let runtime = Arc::new(Mutex::new(Runtime::new().unwrap()));
@@ -69,9 +82,12 @@ fn it_advertises_gatt() {
             .and_then(move |advertising_stream| Ok((advertising_stream, peripheral2)))
     })
     .and_then(|(advertising_stream, peripheral)| {
-        let value = Arc::new(Mutex::new(String::from("hi")));
+        let characteristic_value = Arc::new(Mutex::new(String::from("hi")));
         let notifying = Arc::new(atomic::AtomicBool::new(false));
-        let handled_advertising_stream = receiver
+
+        let descriptor_value = Arc::new(Mutex::new(String::from("hi")));
+
+        let handled_advertising_stream = receiver_characteristic
             .map(move |event| {
                 match event {
                     Event::ReadRequest(read_request) => {
@@ -79,7 +95,7 @@ fn it_advertises_gatt() {
                             "GATT server got a read request with offset {}!",
                             read_request.offset
                         );
-                        let value = value.lock().unwrap().clone();
+                        let value = characteristic_value.lock().unwrap().clone();
                         read_request
                             .response
                             .send(Response::Success(value.clone().into()))
@@ -93,7 +109,7 @@ fn it_advertises_gatt() {
                             write_request.offset,
                             new_value,
                         );
-                        *value.lock().unwrap() = new_value;
+                        *characteristic_value.lock().unwrap() = new_value;
                         write_request
                             .response
                             .send(Response::Success(vec![]))
@@ -124,15 +140,44 @@ fn it_advertises_gatt() {
                     }
                 };
             })
+            .select(receiver_descriptor.map(move |event| {
+                match event {
+                    Event::ReadRequest(read_request) => {
+                        println!(
+                            "GATT server got a read request with offset {}!",
+                            read_request.offset
+                        );
+                        let value = descriptor_value.lock().unwrap().clone();
+                        read_request
+                            .response
+                            .send(Response::Success(value.clone().into()))
+                            .unwrap();
+                        println!("GATT server responded with \"{}\"", value);
+                    }
+                    Event::WriteRequest(write_request) => {
+                        let new_value = String::from_utf8(write_request.data).unwrap();
+                        println!(
+                            "GATT server got a write request with offset {} and data {}!",
+                            write_request.offset,
+                            new_value,
+                        );
+                        *descriptor_value.lock().unwrap() = new_value;
+                        write_request
+                            .response
+                            .send(Response::Success(vec![]))
+                            .unwrap();
+                    }
+                    _ => panic!("Event not supported for Descriptors!")
+                };
+            }))
             .map_err(bluster::Error::from)
             .select(advertising_stream)
-            .skip_while(|_| Ok(true));
+            .for_each(|_| Ok(()));
 
         let advertising_timeout = Timeout::new(
             handled_advertising_stream,
             Duration::from_secs(ADVERTISING_TIMEOUT),
         )
-        .into_future()
         .then(|_| Ok(()));
 
         let advertising_check = future::loop_fn(Arc::clone(&peripheral), move |peripheral| {
