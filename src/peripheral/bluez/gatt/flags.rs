@@ -53,7 +53,7 @@ impl Flags for DescriptorProperties {
         }
 
         if let Some(ref write) = self.write {
-            let write_flag = match write {
+            let write_flag = match write.0 {
                 descriptor::Secure::Secure(_) => "secure-write",
                 descriptor::Secure::Insecure(_) => "write",
             };

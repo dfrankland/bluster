@@ -1,5 +1,5 @@
 macro_rules! _write_type {
-    ($event_sender:ident, $secure:ident) => {
+    (WriteWithAndWithoutResponse, $event_sender:ident, $secure:ident) => {
         #[derive(Debug, Clone)]
         pub enum Write {
             WithResponse($secure),
@@ -15,8 +15,23 @@ macro_rules! _write_type {
             }
         }
     };
-    ($other_type:ident) => {
-        pub type Write = $other_type;
+    (WriteWithResponse, $event_sender:ident, $secure:ident) => {
+        #[derive(Debug, Clone)]
+        pub struct Write(pub $secure);
+
+        impl Write {
+            pub fn sender(self: Self) -> $event_sender {
+                self.0.sender()
+            }
+        }
+
+        impl std::ops::Deref for Write {
+            type Target = $secure;
+
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
     };
 }
 
@@ -83,27 +98,27 @@ macro_rules! _properties {
 
 macro_rules! properties {
     (WriteWithResponse, $event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
-        _write_type!(Secure);
+        _write_type!(WriteWithResponse, $event_sender, Secure);
         _properties!($event_sender, { $($member: $member_type,)* });
     };
     (WriteWithResponse, $event_sender:ident, { $($member:ident: $member_type:ty),* }) => {
-        _write_type!(Secure);
+        _write_type!(WriteWithResponse, $event_sender, Secure);
         _properties!($event_sender, { $($member: $member_type,)* });
     };
     (WriteWithResponse, $event_sender:ident) => {
-        _write_type!(Secure);
+        _write_type!(WriteWithResponse, $event_sender, Secure);
         _properties!($event_sender, {});
     };
     (WriteWithAndWithoutResponse, $event_sender:ident, { $($member:ident: $member_type:ty,)* }) => {
-        _write_type!($event_sender, Secure);
+        _write_type!(WriteWithAndWithoutResponse, $event_sender, Secure);
         _properties!($event_sender, { $($member: $member_type,)* });
     };
     (WriteWithAndWithoutResponse, $event_sender:ident, { $($member:ident: $member_type:ty),* }) => {
-        _write_type!($event_sender, Secure);
+        _write_type!(WriteWithAndWithoutResponse, $event_sender, Secure);
         _properties!($event_sender, { $($member: $member_type,)* });
     };
     (WriteWithAndWithoutResponse, $event_sender:ident) => {
-        _write_type!($event_sender:ident, Secure);
+        _write_type!(WriteWithAndWithoutResponse, $event_sender:ident, Secure);
         properties!($event_sender, {});
     };
 }
