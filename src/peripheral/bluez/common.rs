@@ -6,19 +6,21 @@ use crate::gatt;
 
 #[derive(Debug, Clone)]
 pub enum GattDataType {
-    Service(Arc<gatt::service::Service>),
+    // Not needed...
+    // Service(Arc<gatt::service::Service>),
     Characteristic(Arc<gatt::characteristic::Characteristic>),
     Descriptor(Arc<gatt::descriptor::Descriptor>),
     None,
 }
 
 impl GattDataType {
-    pub fn get_service(self: &Self) -> Arc<gatt::service::Service> {
-        if let GattDataType::Service(ref service) = self {
-            return service.clone();
-        }
-        panic!("GattDataType is not a Service!");
-    }
+    // Not needed...
+    // pub fn get_service(self: &Self) -> Arc<gatt::service::Service> {
+    //     if let GattDataType::Service(ref service) = self {
+    //         return service.clone();
+    //     }
+    //     panic!("GattDataType is not a Service!");
+    // }
 
     pub fn get_characteristic(self: &Self) -> Arc<gatt::characteristic::Characteristic> {
         if let GattDataType::Characteristic(ref characteristic) = self {
