@@ -5,7 +5,10 @@ use dbus::{
 };
 use dbus_tokio::tree::AFactory;
 use futures::{prelude::*, sync::oneshot::channel};
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 
 use super::{
     super::{
@@ -154,12 +157,7 @@ impl Descriptor {
                     .property::<&str, _>("UUID", ())
                     .access(Access::Read)
                     .on_get(move |i, prop_info| {
-                        i.append(&prop_info
-                            .path
-                            .get_data()
-                            .get_descriptor()
-                            .uuid
-                            .to_string());
+                        i.append(&prop_info.path.get_data().get_descriptor().uuid.to_string());
                         Ok(())
                     }),
             )
@@ -188,7 +186,8 @@ impl Descriptor {
                         );
                         Ok(())
                     }),
-            ).add_p(Arc::clone(&value_property));
+            )
+            .add_p(Arc::clone(&value_property));
 
         let object_path = factory
             .object_path(

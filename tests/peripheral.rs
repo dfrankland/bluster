@@ -1,7 +1,7 @@
 use futures::{future, prelude::*, sync::mpsc::channel};
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex, atomic},
+    sync::{atomic, Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -32,8 +32,12 @@ fn it_advertises_gatt() {
     characteristics.insert(Characteristic::new(
         Uuid::from_sdp_short_uuid(0x2A3D as u16),
         characteristic::Properties::new(
-            Some(characteristic::Read(characteristic::Secure::Insecure(sender_characteristic.clone()))),
-            Some(characteristic::Write::WithResponse(characteristic::Secure::Insecure(sender_characteristic.clone()))),
+            Some(characteristic::Read(characteristic::Secure::Insecure(
+                sender_characteristic.clone(),
+            ))),
+            Some(characteristic::Write::WithResponse(
+                characteristic::Secure::Insecure(sender_characteristic.clone()),
+            )),
             Some(sender_characteristic.clone()),
             None,
         ),
@@ -43,10 +47,14 @@ fn it_advertises_gatt() {
             descriptors.insert(Descriptor::new(
                 Uuid::from_sdp_short_uuid(0x2A3D as u16),
                 descriptor::Properties::new(
-                    Some(descriptor::Read(descriptor::Secure::Insecure(sender_descriptor.clone()))),
-                    Some(descriptor::Write(descriptor::Secure::Insecure(sender_descriptor.clone()))),
+                    Some(descriptor::Read(descriptor::Secure::Insecure(
+                        sender_descriptor.clone(),
+                    ))),
+                    Some(descriptor::Write(descriptor::Secure::Insecure(
+                        sender_descriptor.clone(),
+                    ))),
                 ),
-                None
+                None,
             ));
             descriptors
         },
@@ -106,8 +114,7 @@ fn it_advertises_gatt() {
                         let new_value = String::from_utf8(write_request.data).unwrap();
                         println!(
                             "GATT server got a write request with offset {} and data {}!",
-                            write_request.offset,
-                            new_value,
+                            write_request.offset, new_value,
                         );
                         *characteristic_value.lock().unwrap() = new_value;
                         write_request
@@ -122,7 +129,9 @@ fn it_advertises_gatt() {
                         thread::spawn(move || {
                             let mut count = 0;
                             loop {
-                                if !(&notifying).load(atomic::Ordering::Relaxed) { break };
+                                if !(&notifying).load(atomic::Ordering::Relaxed) {
+                                    break;
+                                };
                                 count += 1;
                                 println!("GATT server notifying \"hi {}\"!", count);
                                 notify_subscribe
@@ -158,8 +167,7 @@ fn it_advertises_gatt() {
                         let new_value = String::from_utf8(write_request.data).unwrap();
                         println!(
                             "GATT server got a write request with offset {} and data {}!",
-                            write_request.offset,
-                            new_value,
+                            write_request.offset, new_value,
                         );
                         *descriptor_value.lock().unwrap() = new_value;
                         write_request
@@ -167,7 +175,7 @@ fn it_advertises_gatt() {
                             .send(Response::Success(vec![]))
                             .unwrap();
                     }
-                    _ => panic!("Event not supported for Descriptors!")
+                    _ => panic!("Event not supported for Descriptors!"),
                 };
             }))
             .map_err(bluster::Error::from)
