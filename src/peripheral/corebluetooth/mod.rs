@@ -8,6 +8,7 @@ mod into_cbuuid;
 mod peripheral_manager;
 
 use futures::{future, prelude::*, stream};
+use std::sync::{Arc, Mutex};
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
@@ -20,7 +21,7 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(_runtime: &mut Runtime) -> Box<impl Future<Item = Self, Error = Error>> {
+    pub fn new(_runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
         Box::new(future::ok(Peripheral {
             peripheral_manager: PeripheralManager::new(),
         }))

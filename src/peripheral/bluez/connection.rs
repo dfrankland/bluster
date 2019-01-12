@@ -20,7 +20,7 @@ impl Connection {
         let fallback = Rc::new(SyncConnection::get_private(BusType::System)?);
         let default = AsyncConnection::new(
             fallback.clone(),
-            reactor::Handle::current(),
+            reactor::Handle::default(),
             &mut runtime.lock().unwrap(),
         )?;
 

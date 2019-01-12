@@ -8,7 +8,7 @@ pub fn get_properties_and_permissions(characteristic: &Characteristic) -> (u16, 
     if let Some(secure) = &characteristic.properties.read {
         properties |= CBCharacteristicProperties::CBCharacteristicPropertyRead as u16;
 
-        match secure {
+        match secure.0 {
             Secure::Secure(_) => {
                 permissions |=
                     CBAttributePermissions::CBAttributePermissionsReadEncryptionRequired as u8;
