@@ -7,9 +7,12 @@ mod into_bool;
 mod into_cbuuid;
 mod peripheral_manager;
 
-use futures::{future, prelude::*, stream};
-use std::sync::{Arc, Mutex};
-use tokio::runtime::current_thread::Runtime;
+use futures::{future, prelude::*};
+use std::{
+    sync::{Arc, Mutex},
+    time,
+};
+use tokio::{runtime::current_thread::Runtime, timer};
 use uuid::Uuid;
 
 use self::peripheral_manager::PeripheralManager;
@@ -39,7 +42,10 @@ impl Peripheral {
         self.peripheral_manager.start_advertising(name, uuids);
 
         // TODO: Create an actual stream
-        Box::new(future::ok(Box::new(stream::repeat::<_, Error>(()))))
+        let read_stream = timer::Interval::new_interval(time::Duration::from_secs(1))
+            .map(|_| ())
+            .map_err(|_| Error::from(()));
+        Box::new(future::ok(Box::new(read_stream)))
     }
 
     pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {

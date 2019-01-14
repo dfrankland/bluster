@@ -1,5 +1,3 @@
-#![feature(uniform_paths)]
-
 mod error;
 pub mod gatt;
 mod peripheral;
