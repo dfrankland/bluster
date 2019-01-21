@@ -15,6 +15,7 @@ impl Service {
     pub fn new(
         tree: &mut common::Tree,
         service: &Arc<gatt::service::Service>,
+        index: u64,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
@@ -43,7 +44,7 @@ impl Service {
 
         let object_path = factory
             .object_path(
-                format!("{}/service{:04}", PATH_BASE, 0),
+                format!("{}/service{:04}", PATH_BASE, index),
                 common::GattDataType::None,
             )
             .add(get_all)
