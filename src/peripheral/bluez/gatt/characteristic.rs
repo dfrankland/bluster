@@ -84,14 +84,14 @@ impl Characteristic {
         };
 
         // Setup a channel for notifications
+        let object_path_name = format!("{}/characteristic{:04}", service, index);
+        let object_path_data = common::GattDataType::Characteristic(Arc::clone(characteristic));
         let (message_sender, message_receiver) = mpsc::channel(1);
         {
             let value_property = Arc::clone(&value_property);
             let connection = Arc::clone(connection);
-            let object_path = factory.object_path(
-                format!("{}/characteristic{:04}", service, 0),
-                common::GattDataType::Characteristic(Arc::clone(characteristic)),
-            );
+            let object_path =
+                factory.object_path(object_path_name.clone(), object_path_data.clone());
             Arc::clone(&connection).runtime.lock().unwrap().spawn(
                 message_receiver
                     .map(move |notification: Vec<u8>| {
@@ -311,10 +311,7 @@ impl Characteristic {
             .add_p(Arc::clone(&value_property));
 
         let object_path = factory
-            .object_path(
-                format!("{}/characteristic{:04}", service, index),
-                common::GattDataType::Characteristic(Arc::clone(characteristic)),
-            )
+            .object_path(object_path_name.clone(), object_path_data.clone())
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();
