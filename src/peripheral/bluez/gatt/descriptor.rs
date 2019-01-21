@@ -29,6 +29,7 @@ impl Descriptor {
         tree: &mut common::Tree,
         descriptor: &Arc<gatt::descriptor::Descriptor>,
         characteristic: &Path<'static>,
+        index: u64,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
@@ -191,7 +192,7 @@ impl Descriptor {
 
         let object_path = factory
             .object_path(
-                format!("{}/descriptor{:04}", characteristic.to_string(), 0),
+                format!("{}/descriptor{:04}", characteristic.to_string(), index),
                 common::GattDataType::Descriptor(Arc::clone(descriptor)),
             )
             .add(gatt_descriptor)

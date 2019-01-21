@@ -25,6 +25,9 @@ pub struct Gatt {
     adapter: Path<'static>,
     tree: Arc<Mutex<Option<common::Tree>>>,
     application: Arc<Mutex<Option<Application>>>,
+    service_index: Arc<Mutex<u64>>,
+    characteristic_index: Arc<Mutex<u64>>,
+    descriptor_index: Arc<Mutex<u64>>,
 }
 
 impl Gatt {
@@ -36,6 +39,9 @@ impl Gatt {
             connection,
             tree: Arc::new(Mutex::new(Some(factory.tree(ATree::new())))),
             application: Arc::new(Mutex::new(None)),
+            service_index: Arc::new(Mutex::new(0)),
+            characteristic_index: Arc::new(Mutex::new(0)),
+            descriptor_index: Arc::new(Mutex::new(0)),
         }
     }
 
@@ -43,7 +49,12 @@ impl Gatt {
         let mut tree = self.tree.lock().unwrap();
         let tree = tree.as_mut().unwrap();
 
-        let gatt_service = Service::new(tree, &Arc::new(service.clone()))?;
+        let mut service_index = self.service_index.lock().unwrap();
+        let mut characteristic_index = self.characteristic_index.lock().unwrap();
+        let mut descriptor_index = self.descriptor_index.lock().unwrap();
+
+        let gatt_service = Service::new(tree, &Arc::new(service.clone()), *service_index)?;
+        *service_index += 1;
 
         for characteristic in service.characteristics.iter() {
             let gatt_characteristic = Characteristic::new(
@@ -51,14 +62,18 @@ impl Gatt {
                 tree,
                 &Arc::new(characteristic.clone()),
                 &Arc::new(gatt_service.object_path.clone()),
+                *characteristic_index,
             )?;
+            *characteristic_index += 1;
 
             for descriptor in characteristic.descriptors.iter() {
                 Descriptor::new(
                     tree,
                     &Arc::new(descriptor.clone()),
                     &Arc::new(gatt_characteristic.object_path.clone()),
+                    *descriptor_index,
                 )?;
+                *descriptor_index += 1;
             }
         }
 

@@ -41,6 +41,7 @@ impl Characteristic {
         tree: &mut common::Tree,
         characteristic: &Arc<gatt::characteristic::Characteristic>,
         service: &Path<'static>,
+        index: u64,
     ) -> Result<Self, Error> {
         let factory = AFactory::new_afn::<common::TData>();
 
@@ -311,7 +312,7 @@ impl Characteristic {
 
         let object_path = factory
             .object_path(
-                format!("{}/characteristic{:04}", service, 0),
+                format!("{}/characteristic{:04}", service, index),
                 common::GattDataType::Characteristic(Arc::clone(characteristic)),
             )
             .add(gatt_characteristic)
