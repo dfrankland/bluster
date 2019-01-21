@@ -3,8 +3,4 @@ pub mod gatt;
 mod peripheral;
 mod uuid;
 
-pub use self::{
-    uuid::*,
-    error::*,
-    peripheral::Peripheral,
-};
+pub use self::{error::*, peripheral::Peripheral, uuid::*};
