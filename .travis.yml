@@ -15,10 +15,13 @@ matrix:
       osx_image: xcode9.4
     - os: linux # 14.04
       dist: trusty
+      addons:
+        apt:
+          packages:
+            - libdbus-1-dev
 before_install:
-  - if [ $TRAVIS_OS_NAME = linux ]; then sudo apt-get install -y libdbus-1-dev; fi
-before_script:
-  - rustup component add clippy-preview rustfmt-preview
+  - rustup component add clippy || cargo install --git https://github.com/rust-lang/rust-clippy/ --force clippy
+  - rustup component add rustfmt || cargo install --git https://github.com/rust-lang/rustfmt/ --force rustfmt
 script:
   - cargo build
   # TODO: Make testing work for CI
