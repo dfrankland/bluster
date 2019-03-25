@@ -144,7 +144,7 @@ impl Characteristic {
                     .get1::<HashMap<String, Variant<MessageItem>>>()
                     .unwrap_or_else(HashMap::new)
                     .get("offset")
-                    .and_then(|offset| offset.as_u64())
+                    .and_then(RefArg::as_u64)
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 
@@ -183,7 +183,7 @@ impl Characteristic {
                 let offset = flags
                     .unwrap_or_else(HashMap::new)
                     .get("offset")
-                    .and_then(|offset| offset.as_u64())
+                    .and_then(RefArg::as_u64)
                     .unwrap_or(0) as u16;
                 let mret = method_info.msg.method_return();
 

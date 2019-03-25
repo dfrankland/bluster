@@ -7,7 +7,7 @@ mod error;
 mod gatt;
 
 use futures::{future, prelude::*};
-use std::sync::{Arc, Mutex};
+use std::{string::ToString, sync::{Arc, Mutex}};
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ impl Peripheral {
             uuids
                 .to_vec()
                 .iter()
-                .map(|uuid| uuid.to_string())
+                .map(ToString::to_string)
                 .collect::<Vec<String>>(),
         );
 
