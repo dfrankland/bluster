@@ -7,7 +7,10 @@ mod error;
 mod gatt;
 
 use futures::{future, prelude::*};
-use std::{string::ToString, sync::{Arc, Mutex}};
+use std::{
+    string::ToString,
+    sync::{Arc, Mutex},
+};
 use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
