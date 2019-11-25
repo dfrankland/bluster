@@ -17,7 +17,7 @@ uuid = "0.7.1"
 dbus = "0.6.3"
 dbus-tokio = "0.3.0"
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
-objc = "0.2.5"
+objc = "0.2.7"
 objc-foundation = "0.1.1"
 objc_id = "0.1.1"
 [target."cfg(any(target_os = \"windows\", target_os = \"freebsd\"))".dependencies]

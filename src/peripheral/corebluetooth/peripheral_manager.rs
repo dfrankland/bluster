@@ -138,7 +138,7 @@ impl PeripheralManager {
 
         let advertising_data = NSDictionary::from_keys_and_objects(keys.as_slice(), objects);
         unsafe {
-            msg_send![peripheral_manager, startAdvertising: advertising_data];
+            let _: Result<(), ()> = msg_send![peripheral_manager, startAdvertising: advertising_data];
         }
     }
 
@@ -147,7 +147,7 @@ impl PeripheralManager {
             let peripheral_manager = *self
                 .peripheral_manager_delegate
                 .get_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
-            msg_send![peripheral_manager, stopAdvertising];
+            let _: Result<(), ()> = msg_send![peripheral_manager, stopAdvertising];
         }
     }
 
@@ -193,14 +193,14 @@ impl PeripheralManager {
             let obj: *mut Object = msg_send![cls, alloc];
             let service: *mut Object = msg_send![obj, initWithType:service.uuid.into_cbuuid()
                                                            primary:YES];
-            msg_send![service, setValue:NSArray::from_vec(characteristics)
+            let _: Result<(), ()> = msg_send![service, setValue:NSArray::from_vec(characteristics)
                                  forKey:NSString::from_str("characteristics")];
 
             let peripheral_manager = *self
                 .peripheral_manager_delegate
                 .get_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
 
-            msg_send![peripheral_manager, addService: service];
+            let _: Result<(), ()> = msg_send![peripheral_manager, addService: service];
         }
     }
 }
