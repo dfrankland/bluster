@@ -83,7 +83,7 @@ pub extern "C" fn peripheral_manager_did_receive_read_request(
     request: *mut Object,
 ) {
     unsafe {
-        msg_send![peripheral, respondToRequest:request
+        let _: Result<(), ()> = msg_send![peripheral, respondToRequest:request
                                     withResult:CBATTError::CBATTErrorSuccess];
     }
 }
@@ -96,7 +96,7 @@ pub extern "C" fn peripheral_manager_did_receive_write_requests(
 ) {
     unsafe {
         for request in (*(requests as *mut NSArray<NSObject>)).to_vec() {
-            msg_send![peripheral, respondToRequest:request
+            let _: Result<(), ()> = msg_send![peripheral, respondToRequest:request
                                         withResult:CBATTError::CBATTErrorSuccess];
         }
     }
