@@ -38,8 +38,7 @@ impl Peripheral {
             })
             .and_then(move |adapter| {
                 let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
-                let advertisement =
-                    Advertisement::new(connection.clone(), adapter.object_path.clone());
+                let advertisement = Advertisement::new(connection, adapter.object_path.clone());
 
                 Ok(Peripheral {
                     adapter,

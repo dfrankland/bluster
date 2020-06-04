@@ -142,7 +142,7 @@ impl Advertisement {
         .unwrap()
         .append2(
             &self.object_path,
-            HashMap::<String, Variant<Box<RefArg>>>::new(),
+            HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
         );
 
         // Send message

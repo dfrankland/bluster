@@ -39,11 +39,11 @@ impl Adapter {
             .map_err(Error::from)
             .and_then(|reply| {
                 reply
-                        .read1::<HashMap<
-                            Path<'static>,
-                            HashMap<String, HashMap<String, Variant<Box<RefArg>>>>,
-                        >>()
-                        .map_err(Error::from)
+                    .read1::<HashMap<
+                        Path<'static>,
+                        HashMap<String, HashMap<String, Variant<Box<dyn RefArg>>>>,
+                    >>()
+                    .map_err(Error::from)
             })
             .and_then(|managed_objects| {
                 for (path, props) in managed_objects.iter() {

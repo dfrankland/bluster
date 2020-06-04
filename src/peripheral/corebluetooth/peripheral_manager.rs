@@ -138,7 +138,8 @@ impl PeripheralManager {
 
         let advertising_data = NSDictionary::from_keys_and_objects(keys.as_slice(), objects);
         unsafe {
-            let _: Result<(), ()> = msg_send![peripheral_manager, startAdvertising: advertising_data];
+            let _: Result<(), ()> =
+                msg_send![peripheral_manager, startAdvertising: advertising_data];
         }
     }
 
