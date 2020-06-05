@@ -6,7 +6,8 @@ mod constants;
 mod error;
 mod gatt;
 
-use futures::{future, prelude::*};
+use futures::{compat::*, future, prelude::*};
+use futures01::future::Future as _;
 use std::{
     string::ToString,
     sync::{Arc, Mutex},
@@ -25,10 +26,10 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
+    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Output = Result<Self, Error>>> {
         let connection = match Connection::new(Arc::clone(&runtime)) {
             Ok(connection) => Arc::new(connection),
-            Err(err) => return Box::new(future::Either::A(future::err(err))),
+            Err(err) => return Box::new(future::Either::Left(future::err(err))),
         };
 
         let peripheral = Adapter::new(connection.clone())
@@ -45,20 +46,21 @@ impl Peripheral {
                     gatt,
                     advertisement,
                 })
-            });
+            })
+            .compat();
 
-        Box::new(future::Either::B(peripheral))
+        Box::new(future::Either::Right(peripheral))
     }
 
-    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        self.adapter.is_powered()
+    pub async fn is_powered(self: &Self) -> Result<bool, Error> {
+        self.adapter.is_powered().compat().await
     }
 
-    pub fn start_advertising(
+    pub async fn start_advertising(
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
+    ) -> Result<impl Stream<Item = Result<(), Error>>, Error> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -70,19 +72,19 @@ impl Peripheral {
 
         let advertisement = self.advertisement.register();
         let gatt = self.gatt.register();
-        let registration = gatt.join(advertisement).map(|(stream, ..)| stream);
+        let registration = gatt.join(advertisement).map(|(stream, ..)| stream.compat());
 
-        Box::new(registration)
+        registration.compat().await
     }
 
-    pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn stop_advertising(self: &Self) -> Result<(), Error> {
         let advertisement = self.advertisement.unregister();
         let gatt = self.gatt.unregister();
-        Box::new(advertisement.join(gatt).map(|_| ()))
+        advertisement.join(gatt).map(|_| ()).compat().await
     }
 
-    pub fn is_advertising(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        Box::new(future::ok(self.advertisement.is_advertising()))
+    pub async fn is_advertising(self: &Self) -> bool {
+        self.advertisement.is_advertising()
     }
 
     pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {

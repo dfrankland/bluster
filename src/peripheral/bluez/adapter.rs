@@ -2,7 +2,7 @@ use dbus::{
     arg::{RefArg, Variant},
     Message, MessageItem, Path,
 };
-use futures::prelude::*;
+use futures01::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::{

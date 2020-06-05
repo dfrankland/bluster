@@ -1,4 +1,4 @@
-use futures::{future, prelude::*, sync::mpsc::channel};
+use futures01::{future, prelude::*, sync::mpsc::channel};
 use std::{
     collections::HashSet,
     sync::{atomic, Arc, Mutex},

@@ -6,7 +6,7 @@ mod service;
 
 use dbus::Path;
 use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
-use futures::{future, prelude::*, sync::mpsc::unbounded};
+use futures01::{future, prelude::*, sync::mpsc::unbounded};
 use std::{
     rc::Rc,
     sync::{Arc, Mutex},

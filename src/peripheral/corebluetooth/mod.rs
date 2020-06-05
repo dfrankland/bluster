@@ -7,7 +7,7 @@ mod into_bool;
 mod into_cbuuid;
 mod peripheral_manager;
 
-use futures::{future, prelude::*};
+use futures01::{future, prelude::*};
 use std::{
     sync::{Arc, Mutex},
     time,

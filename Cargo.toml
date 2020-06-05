@@ -10,7 +10,8 @@ repository = "https://github.com/dfrankland/bluster"
 keywords = ["BLE", "Bluetooth", "Bluez", "CoreBluetooth", "USB"]
 categories = ["os", "api-bindings", "hardware-support"]
 [dependencies]
-futures = "0.1.25"
+futures01 = { package = "futures", version = "0.1.25" }
+futures = { version = "0.3", features = ["compat",] }
 tokio = "0.1.13"
 uuid = "0.7.1"
 [target."cfg(any(target_os = \"linux\", target_os = \"android\"))".dependencies]

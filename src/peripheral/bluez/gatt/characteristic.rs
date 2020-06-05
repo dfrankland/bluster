@@ -4,7 +4,7 @@ use dbus::{
     Message, MessageItem, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use futures::{
+use futures01::{
     future,
     prelude::*,
     sync::{mpsc, oneshot},

@@ -4,7 +4,7 @@ use dbus::{
     MessageItem, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::{prelude::*, sync::oneshot::channel};
+use futures01::{prelude::*, sync::oneshot::channel};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

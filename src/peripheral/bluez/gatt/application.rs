@@ -3,7 +3,7 @@ use dbus::{
     Message, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::prelude::*;
+use futures01::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::{

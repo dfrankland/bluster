@@ -4,7 +4,7 @@ use dbus::{
     Message, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use futures::{future, prelude::*};
+use futures01::{future, prelude::*};
 use std::{
     collections::HashMap,
     sync::{
