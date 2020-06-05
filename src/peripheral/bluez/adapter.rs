@@ -2,7 +2,7 @@ use dbus::{
     arg::{RefArg, Variant},
     Message, MessageItem, Path,
 };
-use futures01::prelude::*;
+use futures::compat::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
@@ -21,9 +21,7 @@ pub struct Adapter {
 }
 
 impl Adapter {
-    fn find_adapter(
-        connection: &Arc<Connection>,
-    ) -> Box<impl Future<Item = Path<'static>, Error = Error>> {
+    async fn find_adapter(connection: &Arc<Connection>) -> Result<Path<'static>, Error> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             "/",
@@ -32,45 +30,33 @@ impl Adapter {
         )
         .unwrap();
 
-        let method_call = connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .map_err(Error::from)
-            .and_then(|reply| {
-                reply
-                    .read1::<HashMap<
-                        Path<'static>,
-                        HashMap<String, HashMap<String, Variant<Box<dyn RefArg>>>>,
-                    >>()
-                    .map_err(Error::from)
-            })
-            .and_then(|managed_objects| {
-                for (path, props) in managed_objects.iter() {
-                    if props.contains_key(LE_ADVERTISING_MANAGER_IFACE) {
-                        return Ok(path.clone());
-                    }
-                }
-
-                panic!("LEAdvertisingManager1 interface not found");
-            });
-
-        Box::new(method_call)
+        Ok(connection
+                .default
+                .method_call(message)
+                .unwrap()
+                .compat()
+                .await?
+                .read1::<HashMap<
+                    Path<'static>,
+                    HashMap<String, HashMap<String, Variant<Box<dyn RefArg>>>>,
+                >>()?
+                .into_iter()
+                .find(|(_path, props)| props.contains_key(LE_ADVERTISING_MANAGER_IFACE))
+                .map(|(path, _props)| path)
+                .expect("LEAdvertisingManager1 interface not found"))
     }
 
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(connection: Arc<Connection>) -> Box<impl Future<Item = Self, Error = Error>> {
-        let adapter = Adapter::find_adapter(&connection).and_then(|object_path| {
-            Ok(Adapter {
+    pub async fn new(connection: Arc<Connection>) -> Result<Self, Error> {
+        Adapter::find_adapter(&connection)
+            .await
+            .map(|object_path| Adapter {
                 object_path,
                 connection,
             })
-        });
-
-        Box::new(adapter)
     }
 
-    pub fn powered(self: &Self, on: bool) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn powered(self: &Self, on: bool) -> Result<(), Error> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.object_path,
@@ -84,18 +70,17 @@ impl Adapter {
             MessageItem::Variant(Box::new(MessageItem::Bool(on))),
         );
 
-        let method_call = self
-            .connection
+        self.connection
             .default
             .method_call(message)
             .unwrap()
+            .compat()
+            .await
             .map(|_| ())
-            .map_err(Error::from);
-
-        Box::new(method_call)
+            .map_err(Error::from)
     }
 
-    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
+    pub async fn is_powered(self: &Self) -> Result<bool, Error> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.object_path,
@@ -105,17 +90,16 @@ impl Adapter {
         .unwrap()
         .append2(ADAPTER_IFACE, "Powered");
 
-        let method_call = self
-            .connection
+        self.connection
             .default
             .method_call(message)
             .unwrap()
+            .compat()
+            .await
             .map_err(Error::from)
             .and_then(|message| match message.read1::<Variant<bool>>() {
                 Ok(variant) => Ok(variant.0),
                 Err(err) => Err(Error::from(err)),
-            });
-
-        Box::new(method_call)
+            })
     }
 }

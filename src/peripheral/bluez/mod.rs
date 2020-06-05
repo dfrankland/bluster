@@ -6,8 +6,7 @@ mod constants;
 mod error;
 mod gatt;
 
-use futures::{compat::*, future, prelude::*};
-use futures01::future::Future as _;
+use futures::{future, prelude::*};
 use std::{
     string::ToString,
     sync::{Arc, Mutex},
@@ -26,41 +25,35 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Output = Result<Self, Error>>> {
+    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> impl Future<Output = Result<Self, Error>> {
         let connection = match Connection::new(Arc::clone(&runtime)) {
             Ok(connection) => Arc::new(connection),
-            Err(err) => return Box::new(future::Either::Left(future::err(err))),
+            Err(err) => return future::Either::Left(future::err(err)),
         };
 
-        let peripheral = Adapter::new(connection.clone())
-            .and_then(|adapter| {
-                let adapter1 = adapter.clone();
-                adapter.powered(true).and_then(move |_| Ok(adapter1))
-            })
-            .and_then(move |adapter| {
-                let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
-                let advertisement = Advertisement::new(connection, adapter.object_path.clone());
+        future::Either::Right(async {
+            let adapter = Adapter::new(connection.clone()).await?;
+            adapter.powered(true).await?;
+            let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
+            let advertisement = Advertisement::new(connection, adapter.object_path.clone());
 
-                Ok(Peripheral {
-                    adapter,
-                    gatt,
-                    advertisement,
-                })
+            Ok(Peripheral {
+                adapter,
+                gatt,
+                advertisement,
             })
-            .compat();
-
-        Box::new(future::Either::Right(peripheral))
+        })
     }
 
     pub async fn is_powered(self: &Self) -> Result<bool, Error> {
-        self.adapter.is_powered().compat().await
+        self.adapter.is_powered().await
     }
 
     pub async fn start_advertising(
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Result<impl Stream<Item = Result<(), Error>>, Error> {
+    ) -> Result<impl Stream<Item = ()>, Error> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -72,15 +65,17 @@ impl Peripheral {
 
         let advertisement = self.advertisement.register();
         let gatt = self.gatt.register();
-        let registration = gatt.join(advertisement).map(|(stream, ..)| stream.compat());
-
-        registration.compat().await
+        let (stream, ..) = futures::join!(gatt, advertisement);
+        stream
     }
 
     pub async fn stop_advertising(self: &Self) -> Result<(), Error> {
         let advertisement = self.advertisement.unregister();
         let gatt = self.gatt.unregister();
-        advertisement.join(gatt).map(|_| ()).compat().await
+        let (ad_result, gatt_result) = futures::join!(advertisement, gatt);
+        ad_result?;
+        gatt_result?;
+        Ok(())
     }
 
     pub async fn is_advertising(self: &Self) -> bool {

@@ -6,7 +6,7 @@ mod service;
 
 use dbus::Path;
 use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
-use futures01::{future, prelude::*, sync::mpsc::unbounded};
+use futures::{channel::mpsc::unbounded, compat::*, prelude::*};
 use std::{
     rc::Rc,
     sync::{Arc, Mutex},
@@ -80,9 +80,7 @@ impl Gatt {
         Ok(())
     }
 
-    pub fn register(
-        self: &Self,
-    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
+    pub async fn register(self: &Self) -> Result<impl Stream<Item = ()>, Error> {
         let mut tree = self.tree.lock().unwrap().take().unwrap();
 
         let new_application = Application::new(
@@ -96,15 +94,12 @@ impl Gatt {
             .unwrap()
             .replace(new_application.clone());
 
-        if let Err(err) = tree.set_registered(&self.connection.fallback, true) {
-            return Box::new(future::Either::A(future::err(Error::from(err))));
-        };
+        tree.set_registered(&self.connection.fallback, true)?;
 
         let (sender, receiver) = unbounded();
 
-        let registration = new_application.register().and_then(move |_| {
+        let registration = new_application.register().map(move |_| {
             sender.unbounded_send(()).unwrap();
-            Ok(())
         });
 
         let server = ATreeServer::new(
@@ -112,20 +107,24 @@ impl Gatt {
             Arc::new(tree),
             self.connection.default.messages().unwrap(),
         )
-        .map(|_| ())
-        .map_err(Error::from)
-        .select(receiver.map_err(Error::from))
-        .into_future()
-        .map(|(.., stream)| Box::new(stream))
-        .map_err(|(err, ..)| err);
+        .compat()
+        .map(|_| ());
 
-        Box::new(future::Either::B(
-            registration.join(server).map(|(.., server)| server),
-        ))
+        let mut stream = futures::stream::select(server, receiver);
+
+        futures::join!(registration, stream.next());
+
+        Ok(stream)
     }
 
-    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
-        let application = self.application.lock().unwrap().take().unwrap();
-        Box::new(application.unregister().map(|_| ()))
+    pub async fn unregister(self: &Self) -> Result<(), Error> {
+        self.application
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap()
+            .unregister()
+            .await
+            .map(|_| ())
     }
 }
