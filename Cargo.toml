@@ -13,7 +13,7 @@ categories = ["os", "api-bindings", "hardware-support"]
 futures01 = { package = "futures", version = "0.1.25" }
 futures = { version = "0.3", features = ["compat",] }
 tokio = "0.1.13"
-uuid = "0.7.1"
+uuid = "0.8.1"
 [target."cfg(any(target_os = \"linux\", target_os = \"android\"))".dependencies]
 dbus = "0.6.3"
 dbus-tokio = "0.3.0"
