@@ -1,4 +1,4 @@
-use futures::sync::{mpsc, oneshot};
+use futures01::sync::{mpsc, oneshot};
 
 pub type EventSender = mpsc::Sender<Event>;
 pub type ResponseSender = oneshot::Sender<Response>;

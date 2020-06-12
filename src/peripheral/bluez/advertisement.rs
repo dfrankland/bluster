@@ -4,7 +4,7 @@ use dbus::{
     Message, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use futures::{future, prelude::*};
+use futures::{compat::*, prelude::*};
 use std::{
     collections::HashMap,
     sync::{
@@ -116,17 +116,13 @@ impl Advertisement {
         self.uuids.lock().unwrap().replace(uuids.into());
     }
 
-    pub fn register(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn register(self: &Self) -> Result<(), Error> {
         // Register with DBus
         let mut tree = self.tree.lock().unwrap();
 
-        if let Err(err) = tree
-            .as_mut()
+        tree.as_mut()
             .unwrap()
-            .set_registered(&self.connection.fallback, true)
-        {
-            return Box::new(future::Either::A(future::err(Error::from(err))));
-        }
+            .set_registered(&self.connection.fallback, true)?;
 
         self.connection
             .fallback
@@ -142,26 +138,24 @@ impl Advertisement {
         .unwrap()
         .append2(
             &self.object_path,
-            HashMap::<String, Variant<Box<RefArg>>>::new(),
+            HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
         );
 
         // Send message
         let is_advertising = self.is_advertising.clone();
-        let method_call = self
-            .connection
+        self.connection
             .default
             .method_call(message)
             .unwrap()
-            .and_then(move |_| {
+            .compat()
+            .map_ok(move |_| {
                 is_advertising.store(true, Ordering::Relaxed);
-                Ok(())
             })
-            .map_err(Error::from);
-
-        Box::new(future::Either::B(method_call))
+            .map_err(Error::from)
+            .await
     }
 
-    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn unregister(self: &Self) -> Result<(), Error> {
         // Create message to ungregister advertisement with Bluez
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
@@ -179,12 +173,13 @@ impl Advertisement {
             .default
             .method_call(message)
             .unwrap()
-            .map(|_| ())
+            .compat()
+            .map_ok(|_| ())
             .map_err(Error::from);
 
         is_advertising.store(false, Ordering::Relaxed);
 
-        Box::new(method_call)
+        method_call.await
     }
 
     pub fn is_advertising(self: &Self) -> bool {

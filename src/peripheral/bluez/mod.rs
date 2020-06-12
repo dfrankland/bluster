@@ -25,41 +25,35 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
+    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> impl Future<Output = Result<Self, Error>> {
         let connection = match Connection::new(Arc::clone(&runtime)) {
             Ok(connection) => Arc::new(connection),
-            Err(err) => return Box::new(future::Either::A(future::err(err))),
+            Err(err) => return future::Either::Left(future::err(err)),
         };
 
-        let peripheral = Adapter::new(connection.clone())
-            .and_then(|adapter| {
-                let adapter1 = adapter.clone();
-                adapter.powered(true).and_then(move |_| Ok(adapter1))
+        future::Either::Right(async {
+            let adapter = Adapter::new(connection.clone()).await?;
+            adapter.powered(true).await?;
+            let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
+            let advertisement = Advertisement::new(connection, adapter.object_path.clone());
+
+            Ok(Peripheral {
+                adapter,
+                gatt,
+                advertisement,
             })
-            .and_then(move |adapter| {
-                let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
-                let advertisement =
-                    Advertisement::new(connection.clone(), adapter.object_path.clone());
-
-                Ok(Peripheral {
-                    adapter,
-                    gatt,
-                    advertisement,
-                })
-            });
-
-        Box::new(future::Either::B(peripheral))
+        })
     }
 
-    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        self.adapter.is_powered()
+    pub async fn is_powered(self: &Self) -> Result<bool, Error> {
+        self.adapter.is_powered().await
     }
 
-    pub fn start_advertising(
+    pub async fn start_advertising(
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
+    ) -> Result<impl Stream<Item = ()>, Error> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -71,19 +65,21 @@ impl Peripheral {
 
         let advertisement = self.advertisement.register();
         let gatt = self.gatt.register();
-        let registration = gatt.join(advertisement).map(|(stream, ..)| stream);
-
-        Box::new(registration)
+        let (stream, ..) = futures::join!(gatt, advertisement);
+        stream
     }
 
-    pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn stop_advertising(self: &Self) -> Result<(), Error> {
         let advertisement = self.advertisement.unregister();
         let gatt = self.gatt.unregister();
-        Box::new(advertisement.join(gatt).map(|_| ()))
+        let (ad_result, gatt_result) = futures::join!(advertisement, gatt);
+        ad_result?;
+        gatt_result?;
+        Ok(())
     }
 
-    pub fn is_advertising(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        Box::new(future::ok(self.advertisement.is_advertising()))
+    pub async fn is_advertising(self: &Self) -> bool {
+        self.advertisement.is_advertising()
     }
 
     pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {

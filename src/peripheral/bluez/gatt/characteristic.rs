@@ -4,7 +4,7 @@ use dbus::{
     Message, MessageItem, Path,
 };
 use dbus_tokio::tree::{AFactory, ATree};
-use futures::{
+use futures01::{
     future,
     prelude::*,
     sync::{mpsc, oneshot},
@@ -311,7 +311,7 @@ impl Characteristic {
             .add_p(Arc::clone(&value_property));
 
         let object_path = factory
-            .object_path(object_path_name.clone(), object_path_data.clone())
+            .object_path(object_path_name, object_path_data)
             .add(gatt_characteristic)
             .introspectable()
             .object_manager();

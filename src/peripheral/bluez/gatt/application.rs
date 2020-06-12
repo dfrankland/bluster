@@ -3,7 +3,7 @@ use dbus::{
     Message, Path,
 };
 use dbus_tokio::tree::AFactory;
-use futures::prelude::*;
+use futures::compat::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::{
@@ -43,7 +43,7 @@ impl Application {
         }
     }
 
-    pub fn register(self: &Self) -> Box<impl Future<Item = Message, Error = Error>> {
+    pub async fn register(self: &Self) -> Result<Message, Error> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -53,19 +53,19 @@ impl Application {
         .unwrap()
         .append2(
             &self.object_path,
-            HashMap::<String, Variant<Box<RefArg>>>::new(),
+            HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
         );
 
-        Box::new(
-            self.connection
-                .default
-                .method_call(message)
-                .unwrap()
-                .map_err(Error::from),
-        )
+        self.connection
+            .default
+            .method_call(message)
+            .unwrap()
+            .compat()
+            .await
+            .map_err(Error::from)
     }
 
-    pub fn unregister(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn unregister(self: &Self) -> Result<(), Error> {
         let message = Message::new_method_call(
             BLUEZ_SERVICE_NAME,
             &self.adapter,
@@ -75,14 +75,13 @@ impl Application {
         .unwrap()
         .append1(&self.object_path);
 
-        let method_call = self
-            .connection
+        self.connection
             .default
             .method_call(message)
             .unwrap()
+            .compat()
+            .await
             .map(|_| ())
-            .map_err(Error::from);
-
-        Box::new(method_call)
+            .map_err(Error::from)
     }
 }
