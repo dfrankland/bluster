@@ -1,14 +1,13 @@
 use dbus::{
-    arg::{RefArg, Variant},
-    Message, MessageItem, Path,
+    arg::{messageitem::MessageItem, RefArg, Variant},
+    Path,
 };
-use futures::compat::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::{
     connection::Connection,
     constants::{
-        ADAPTER_IFACE, BLUEZ_SERVICE_NAME, DBUS_OBJECTMANAGER_IFACE, DBUS_PROPERTIES_IFACE,
+        ADAPTER_IFACE, DBUS_OBJECTMANAGER_IFACE, DBUS_PROPERTIES_IFACE,
         LE_ADVERTISING_MANAGER_IFACE,
     },
 };
@@ -20,30 +19,22 @@ pub struct Adapter {
     connection: Arc<Connection>,
 }
 
+type ManagedObjectsProps =
+    HashMap<Path<'static>, HashMap<String, HashMap<String, Variant<Box<dyn RefArg>>>>>;
+
 impl Adapter {
     async fn find_adapter(connection: &Arc<Connection>) -> Result<Path<'static>, Error> {
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            "/",
-            DBUS_OBJECTMANAGER_IFACE,
-            "GetManagedObjects",
-        )
-        .unwrap();
+        let path = "/".into();
+        let proxy = connection.get_bluez_proxy(&path);
 
-        Ok(connection
-                .default
-                .method_call(message)
-                .unwrap()
-                .compat()
-                .await?
-                .read1::<HashMap<
-                    Path<'static>,
-                    HashMap<String, HashMap<String, Variant<Box<dyn RefArg>>>>,
-                >>()?
-                .into_iter()
-                .find(|(_path, props)| props.contains_key(LE_ADVERTISING_MANAGER_IFACE))
-                .map(|(path, _props)| path)
-                .expect("LEAdvertisingManager1 interface not found"))
+        let (props,): (ManagedObjectsProps,) = proxy
+            .method_call(DBUS_OBJECTMANAGER_IFACE, "GetManagedObjects", ())
+            .await?;
+        Ok(props
+            .into_iter()
+            .find(|(_path, props)| props.contains_key(LE_ADVERTISING_MANAGER_IFACE))
+            .map(|(path, _props)| path)
+            .expect("LEAdvertisingManager1 interface not found"))
     }
 
     #[allow(clippy::new_ret_no_self)]
@@ -57,49 +48,26 @@ impl Adapter {
     }
 
     pub async fn powered(self: &Self, on: bool) -> Result<(), Error> {
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.object_path,
-            DBUS_PROPERTIES_IFACE,
-            "Set",
-        )
-        .unwrap()
-        .append3(
-            ADAPTER_IFACE,
-            "Powered",
-            MessageItem::Variant(Box::new(MessageItem::Bool(on))),
-        );
-
-        self.connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
-            .await
-            .map(|_| ())
-            .map_err(Error::from)
+        let proxy = self.connection.get_bluez_proxy(&self.object_path);
+        proxy
+            .method_call(
+                DBUS_PROPERTIES_IFACE,
+                "Set",
+                (
+                    ADAPTER_IFACE,
+                    "Powered",
+                    MessageItem::Variant(Box::new(on.into())),
+                ),
+            )
+            .await?;
+        Ok(())
     }
 
     pub async fn is_powered(self: &Self) -> Result<bool, Error> {
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.object_path,
-            DBUS_PROPERTIES_IFACE,
-            "Get",
-        )
-        .unwrap()
-        .append2(ADAPTER_IFACE, "Powered");
-
-        self.connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
-            .await
-            .map_err(Error::from)
-            .and_then(|message| match message.read1::<Variant<bool>>() {
-                Ok(variant) => Ok(variant.0),
-                Err(err) => Err(Error::from(err)),
-            })
+        let proxy = self.connection.get_bluez_proxy(&self.object_path);
+        let (powered,): (Variant<bool>,) = proxy
+            .method_call(DBUS_PROPERTIES_IFACE, "Get", (ADAPTER_IFACE, "Powered"))
+            .await?;
+        Ok(powered.0)
     }
 }

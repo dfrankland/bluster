@@ -1,5 +1,4 @@
-use dbus::{tree::Access, Path};
-use dbus_tokio::tree::AFactory;
+use dbus::Path;
 use std::sync::Arc;
 
 use super::super::common;
@@ -17,44 +16,16 @@ impl Service {
         service: &Arc<gatt::service::Service>,
         index: u64,
     ) -> Result<Self, Error> {
-        let factory = AFactory::new_afn::<common::TData>();
-
-        let get_all = factory
-            .interface(GATT_SERVICE_IFACE, ())
-            .add_p({
-                let service = Arc::clone(service);
-                factory
-                    .property::<&str, _>("UUID", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(service.uuid.to_string());
-                        Ok(())
-                    })
-            })
-            .add_p({
-                let service = service.clone();
-                factory
-                    .property::<bool, _>("Primary", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        i.append(service.primary);
-                        Ok(())
-                    })
-            });
-
-        let object_path = factory
-            .object_path(
-                format!("{}/service{:04}", PATH_BASE, index),
-                common::GattDataType::None,
-            )
-            .add(get_all)
-            .introspectable()
-            .object_manager();
-
-        let path = object_path.get_name().clone();
-
-        tree.insert(object_path);
-
-        Ok(Service { object_path: path })
+        let get_all = tree.register(GATT_SERVICE_IFACE, |b| {
+            let service1 = service.clone();
+            b.property("UUID")
+                .get(move |_ctx, _cr| Ok(service1.uuid.to_string()));
+            let service1 = service.clone();
+            b.property("Primary")
+                .get(move |_ctx, _cr| Ok(service1.primary));
+        });
+        let object_path: Path = format!("{}/service{:04}", PATH_BASE, index).into();
+        tree.insert(object_path.clone(), &[get_all], ());
+        Ok(Service { object_path })
     }
 }

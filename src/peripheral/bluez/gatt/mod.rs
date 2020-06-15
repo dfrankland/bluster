@@ -4,19 +4,15 @@ mod descriptor;
 mod flags;
 mod service;
 
-use dbus::Path;
-use dbus_tokio::tree::{AFactory, ATree, ATreeServer};
-use futures::{channel::mpsc::unbounded, compat::*, prelude::*};
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use dbus::{channel::MatchingReceiver, message::MatchRule, Path};
+use futures::{channel::mpsc::unbounded, prelude::*};
+use std::sync::{Arc, Mutex};
 
 use self::{
     application::Application, characteristic::Characteristic, descriptor::Descriptor,
     service::Service,
 };
-use super::{common, Connection};
+use super::{common, constants::PATH_BASE, Connection};
 use crate::{gatt, Error};
 
 #[derive(Debug)]
@@ -32,12 +28,17 @@ pub struct Gatt {
 
 impl Gatt {
     pub fn new(connection: Arc<Connection>, adapter: Path<'static>) -> Self {
-        let factory = AFactory::new_afn::<common::TData>();
-
+        let mut tree = common::Tree::new();
+        tree.set_async_support(Some((
+            connection.default.clone(),
+            Box::new(|x| {
+                tokio::spawn(x);
+            }),
+        )));
         Gatt {
             adapter,
             connection,
-            tree: Arc::new(Mutex::new(Some(factory.tree(ATree::new())))),
+            tree: Arc::new(Mutex::new(Some(tree))),
             application: Arc::new(Mutex::new(None)),
             service_index: Arc::new(Mutex::new(0)),
             characteristic_index: Arc::new(Mutex::new(0)),
@@ -94,27 +95,32 @@ impl Gatt {
             .unwrap()
             .replace(new_application.clone());
 
-        tree.set_registered(&self.connection.fallback, true)?;
+        let (reg_sender, mut receiver) = unbounded();
 
-        let (sender, receiver) = unbounded();
+        let conn_sender = reg_sender.clone();
 
-        let registration = new_application.register().map(move |_| {
-            sender.unbounded_send(()).unwrap();
+        let mut match_rule = MatchRule::new_method_call();
+        match_rule.path = Some(PATH_BASE.into());
+        match_rule.path_is_namespace = true;
+        self.connection.default.start_receive(
+            match_rule,
+            Box::new(move |msg, conn| {
+                let mut conn_sender = conn_sender.clone();
+                tokio::spawn(async move { conn_sender.send(()).await });
+                tree.handle_message(msg, conn).unwrap();
+                true
+            }),
+        );
+
+        let registration = new_application.register().map(move |result| {
+            reg_sender.unbounded_send(()).unwrap();
+            result
         });
 
-        let server = ATreeServer::new(
-            Rc::clone(&self.connection.fallback),
-            Arc::new(tree),
-            self.connection.default.messages().unwrap(),
-        )
-        .compat()
-        .map(|_| ());
+        let (reg_result, _) = futures::join!(registration, receiver.next());
+        reg_result?;
 
-        let mut stream = futures::stream::select(server, receiver);
-
-        futures::join!(registration, stream.next());
-
-        Ok(stream)
+        Ok(receiver)
     }
 
     pub async fn unregister(self: &Self) -> Result<(), Error> {

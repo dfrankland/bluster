@@ -1,13 +1,10 @@
-use futures::{compat::*, prelude::*};
-use futures01::sync::mpsc::channel;
+use futures::{channel::mpsc::channel, prelude::*};
 use std::{
     collections::HashSet,
     sync::{atomic, Arc, Mutex},
     thread,
     time::Duration,
 };
-use tokio::prelude::FutureExt as _;
-use tokio::runtime::current_thread::Runtime;
 use uuid::Uuid;
 
 use bluster::{
@@ -25,8 +22,11 @@ use bluster::{
 const ADVERTISING_NAME: &str = "hello";
 const ADVERTISING_TIMEOUT: u64 = 60;
 
-#[test]
-fn it_advertises_gatt() {
+#[tokio::test]
+async fn it_advertises_gatt() {
+    if let Err(err) = pretty_env_logger::try_init() {
+        eprintln!("WARNING: failed to initialize logging framework: {}", err);
+    }
     let (sender_characteristic, receiver_characteristic) = channel(1);
     let (sender_descriptor, receiver_descriptor) = channel(1);
 
@@ -62,14 +62,12 @@ fn it_advertises_gatt() {
         },
     ));
 
-    let runtime = Arc::new(Mutex::new(Runtime::new().unwrap()));
-
     let characteristic_handler = async {
         let characteristic_value = Arc::new(Mutex::new(String::from("hi")));
         let notifying = Arc::new(atomic::AtomicBool::new(false));
-        let mut rx = receiver_characteristic.compat();
-        while let Some(event_result) = rx.next().await {
-            match event_result.unwrap() {
+        let mut rx = receiver_characteristic;
+        while let Some(event) = rx.next().await {
+            match event {
                 Event::ReadRequest(read_request) => {
                     println!(
                         "GATT server got a read request with offset {}!",
@@ -125,9 +123,9 @@ fn it_advertises_gatt() {
 
     let descriptor_handler = async {
         let descriptor_value = Arc::new(Mutex::new(String::from("hi")));
-        let mut rx = receiver_descriptor.compat();
-        while let Some(event_result) = rx.next().await {
-            match event_result.unwrap() {
+        let mut rx = receiver_descriptor;
+        while let Some(event) = rx.next().await {
+            match event {
                 Event::ReadRequest(read_request) => {
                     println!(
                         "GATT server got a read request with offset {}!",
@@ -157,13 +155,7 @@ fn it_advertises_gatt() {
         }
     };
 
-    let peripheral_fut = Peripheral::new(&runtime);
-    futures::pin_mut!(peripheral_fut);
-    let peripheral = runtime
-        .lock()
-        .unwrap()
-        .block_on(peripheral_fut.compat())
-        .unwrap();
+    let peripheral = Peripheral::new().await.unwrap();
     peripheral
         .add_service(&Service::new(
             Uuid::from_sdp_short_uuid(0x1234 as u16),
@@ -174,33 +166,26 @@ fn it_advertises_gatt() {
     let main_fut = async move {
         while !peripheral.is_powered().await.unwrap() {}
         println!("Peripheral powered on");
-        let advertising_stream = peripheral
-            .start_advertising(ADVERTISING_NAME, &[])
-            .await
-            .unwrap();
-        let ads_handled = advertising_stream
-            .for_each(|_| futures::future::ready(()))
-            .unit_error()
-            // TODO: make this timeout less clunky after upgrading tokio
-            .compat()
-            .timeout(Duration::from_secs(ADVERTISING_TIMEOUT))
-            .compat()
-            .map(|_| ());
-        let ads_check = async {
-            while !peripheral.is_advertising().await {}
-            println!("Advertising as \"{}\"", ADVERTISING_NAME);
-        };
-        futures::join!(ads_check, ads_handled);
-        peripheral.stop_advertising().await.unwrap();
-        while peripheral.is_advertising().await {}
-        println!("Peripheral stopped advertising");
+        let advertising_stream = peripheral.start_advertising(ADVERTISING_NAME, &[]).await;
+        match advertising_stream {
+            Ok(advertising_stream) => {
+                let ads_handled = tokio::time::timeout(
+                    Duration::from_secs(ADVERTISING_TIMEOUT),
+                    advertising_stream.for_each(|_| futures::future::ready(())),
+                )
+                .map(|_| ());
+                let ads_check = async { while !peripheral.is_advertising().await {} };
+                futures::join!(ads_check, ads_handled);
+                peripheral.stop_advertising().await.unwrap();
+                while peripheral.is_advertising().await {}
+                println!("Peripheral stopped advertising");
+            }
+            Err(e) => {
+                eprintln!("Error: {:?}", e);
+                tokio::time::delay_for(Duration::from_secs(ADVERTISING_TIMEOUT)).await;
+            }
+        }
     };
 
-    {
-        let mut runtime = runtime.lock().unwrap();
-        runtime.spawn(characteristic_handler.unit_error().boxed().compat());
-        runtime.spawn(descriptor_handler.unit_error().boxed().compat());
-        futures::pin_mut!(main_fut);
-        runtime.block_on(main_fut.unit_error().compat()).unwrap();
-    }
+    futures::join!(characteristic_handler, descriptor_handler, main_fut);
 }

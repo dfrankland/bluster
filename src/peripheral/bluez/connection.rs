@@ -1,33 +1,33 @@
-use dbus::{BusType, Connection as SyncConnection};
-use dbus_tokio::AConnection as AsyncConnection;
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
-use tokio::{reactor, runtime::current_thread};
+use std::fmt;
+use std::sync::Arc;
 
+use dbus::{nonblock::SyncConnection, Path};
+
+use super::constants::{BLUEZ_DBUS_TIMEOUT, BLUEZ_SERVICE_NAME};
 use crate::Error;
 
-#[derive(Debug)]
 pub struct Connection {
-    pub fallback: Rc<SyncConnection>,
-    pub default: AsyncConnection,
-    pub runtime: Arc<Mutex<current_thread::Runtime>>,
+    pub default: Arc<SyncConnection>,
 }
 
-impl Connection {
-    pub fn new(runtime: Arc<Mutex<current_thread::Runtime>>) -> Result<Self, Error> {
-        let fallback = Rc::new(SyncConnection::get_private(BusType::System)?);
-        let default = AsyncConnection::new(
-            fallback.clone(),
-            reactor::Handle::default(),
-            &mut runtime.lock().unwrap(),
-        )?;
+impl fmt::Debug for Connection {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "Connection")
+    }
+}
 
-        Ok(Connection {
-            fallback,
-            default,
-            runtime,
-        })
+impl<'a> Connection {
+    pub fn new() -> Result<Self, Error> {
+        let (resource, default) = dbus_tokio::connection::new_system_sync()?;
+        tokio::spawn(async {
+            let err = resource.await;
+            panic!("Lost connection to D-Bus: {}", err);
+        });
+
+        Ok(Connection { default })
+    }
+
+    pub fn get_bluez_proxy(&'a self, path: &'a Path) -> dbus::nonblock::Proxy<&'a SyncConnection> {
+        dbus::nonblock::Proxy::new(BLUEZ_SERVICE_NAME, path, BLUEZ_DBUS_TIMEOUT, &self.default)
     }
 }
