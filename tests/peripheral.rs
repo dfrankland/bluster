@@ -174,10 +174,10 @@ async fn it_advertises_gatt() {
                     advertising_stream.for_each(|_| futures::future::ready(())),
                 )
                 .map(|_| ());
-                let ads_check = async { while !peripheral.is_advertising().await {} };
+                let ads_check = async { while !peripheral.is_advertising().await.unwrap() {} };
                 futures::join!(ads_check, ads_handled);
                 peripheral.stop_advertising().await.unwrap();
-                while peripheral.is_advertising().await {}
+                while peripheral.is_advertising().await.unwrap() {}
                 println!("Peripheral stopped advertising");
             }
             Err(e) => {

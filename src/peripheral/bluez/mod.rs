@@ -74,8 +74,8 @@ impl Peripheral {
         Ok(())
     }
 
-    pub async fn is_advertising(self: &Self) -> bool {
-        self.advertisement.is_advertising()
+    pub async fn is_advertising(self: &Self) -> Result<bool, Error> {
+        Ok(self.advertisement.is_advertising())
     }
 
     pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
