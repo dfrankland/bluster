@@ -7,12 +7,8 @@ mod into_bool;
 mod into_cbuuid;
 mod peripheral_manager;
 
-use futures01::{future, prelude::*};
-use std::{
-    sync::{Arc, Mutex},
-    time,
-};
-use tokio::{runtime::current_thread::Runtime, timer};
+use futures::prelude::*;
+use std::time;
 use uuid::Uuid;
 
 use self::peripheral_manager::PeripheralManager;
@@ -24,40 +20,38 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(_runtime: &Arc<Mutex<Runtime>>) -> Box<impl Future<Item = Self, Error = Error>> {
-        Box::new(future::ok(Peripheral {
+    pub async fn new() -> Result<Self, Error> {
+        Ok(Peripheral {
             peripheral_manager: PeripheralManager::new(),
-        }))
+        })
     }
 
-    pub fn is_powered(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        Box::new(future::ok(self.peripheral_manager.is_powered()))
+    pub async fn is_powered(&self) -> Result<bool, Error> {
+        Ok(self.peripheral_manager.is_powered())
     }
 
-    pub fn start_advertising(
+    pub async fn start_advertising(
         self: &Self,
         name: &str,
         uuids: &[Uuid],
-    ) -> Box<impl Future<Item = Box<impl Stream<Item = (), Error = Error>>, Error = Error>> {
+    ) -> Result<impl Stream<Item = ()>, Error> {
         self.peripheral_manager.start_advertising(name, uuids);
 
         // TODO: Create an actual stream
-        let read_stream = timer::Interval::new_interval(time::Duration::from_secs(1))
-            .map(|_| ())
-            .map_err(|_| Error::from(()));
-        Box::new(future::ok(Box::new(read_stream)))
+        let read_stream = tokio::time::interval(time::Duration::from_secs(1)).map(|_| ());
+        Ok(Box::new(read_stream))
     }
 
-    pub fn stop_advertising(self: &Self) -> Box<impl Future<Item = (), Error = Error>> {
+    pub async fn stop_advertising(&self) -> Result<(), Error> {
         self.peripheral_manager.stop_advertising();
-        Box::new(future::ok(()))
+        Ok(())
     }
 
-    pub fn is_advertising(self: &Self) -> Box<impl Future<Item = bool, Error = Error>> {
-        Box::new(future::ok(self.peripheral_manager.is_advertising()))
+    pub async fn is_advertising(&self) -> Result<bool, Error> {
+        Ok(self.peripheral_manager.is_advertising())
     }
 
-    pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {
+    pub fn add_service(&self, service: &Service) -> Result<(), Error> {
         self.peripheral_manager.add_service(service);
         Ok(())
     }

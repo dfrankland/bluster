@@ -1,10 +1,9 @@
 use dbus::{
     arg::{RefArg, Variant},
-    tree::Access,
-    Message, Path,
+    channel::MatchingReceiver,
+    message::MatchRule,
+    Path,
 };
-use dbus_tokio::tree::{AFactory, ATree};
-use futures::{compat::*, prelude::*};
 use std::{
     collections::HashMap,
     sync::{
@@ -16,9 +15,7 @@ use std::{
 use super::{
     common,
     connection::Connection,
-    constants::{
-        BLUEZ_SERVICE_NAME, LE_ADVERTISEMENT_IFACE, LE_ADVERTISING_MANAGER_IFACE, PATH_BASE,
-    },
+    constants::{LE_ADVERTISEMENT_IFACE, LE_ADVERTISING_MANAGER_IFACE, PATH_BASE},
 };
 use crate::Error;
 
@@ -27,7 +24,7 @@ pub struct Advertisement {
     connection: Arc<Connection>,
     adapter: Path<'static>,
     pub object_path: Path<'static>,
-    tree: Arc<Mutex<Option<common::Tree>>>,
+    tree: Arc<Mutex<common::Tree>>,
     is_advertising: Arc<AtomicBool>,
     name: Arc<Mutex<Option<String>>>,
     uuids: Arc<Mutex<Option<Vec<String>>>>,
@@ -35,8 +32,7 @@ pub struct Advertisement {
 
 impl Advertisement {
     pub fn new(connection: Arc<Connection>, adapter: Path<'static>) -> Self {
-        let factory = AFactory::new_afn::<common::TData>();
-
+        let mut tree = common::Tree::new();
         let is_advertising = Arc::new(AtomicBool::new(false));
         let is_advertising_release = is_advertising.clone();
 
@@ -46,62 +42,37 @@ impl Advertisement {
         let uuids = Arc::new(Mutex::new(None));
         let uuids_property = uuids.clone();
 
-        let advertisement = factory
-            .interface(LE_ADVERTISEMENT_IFACE, ())
-            .add_m(factory.amethod("Release", (), move |method_info| {
-                is_advertising_release.store(false, Ordering::Relaxed);
-                Ok(vec![method_info.msg.method_return()])
-            }))
-            .add_p(
-                factory
-                    .property::<&str, _>("Type", ())
-                    .access(Access::Read)
-                    .on_get(|i, _| {
-                        i.append("peripheral");
-                        Ok(())
-                    }),
-            )
-            .add_p(
-                factory
-                    .property::<&str, _>("LocalName", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        if let Ok(guard) = name_property.lock() {
-                            if let Some(local_name) = guard.clone() {
-                                i.append(local_name);
-                            }
-                        }
-                        Ok(())
-                    }),
-            )
-            .add_p(
-                factory
-                    .property::<&[&str], _>("ServiceUUIDs", ())
-                    .access(Access::Read)
-                    .on_get(move |i, _| {
-                        if let Ok(guard) = uuids_property.lock() {
-                            if let Some(service_uuids) = guard.clone() {
-                                i.append(service_uuids);
-                            }
-                        }
-                        Ok(())
-                    }),
-            );
+        let object_path: Path = format!("{}/advertisement{:04}", PATH_BASE, 0).into();
 
-        let object_path = factory
-            .object_path(
-                format!("{}/advertisement{:04}", PATH_BASE, 0),
-                common::GattDataType::None,
-            )
-            .add(advertisement);
-        let path = object_path.get_name().clone();
-        let tree = factory.tree(ATree::new()).add(object_path);
+        let iface_token = tree.register(LE_ADVERTISEMENT_IFACE, |b| {
+            b.method_with_cr_async("Release", (), (), move |mut ctx, _cr, ()| {
+                is_advertising_release.store(false, Ordering::Relaxed);
+                futures::future::ready(ctx.reply(Ok(())))
+            });
+            b.property("Type")
+                .get(|_ctx, _cr| Ok("peripheral".to_owned()));
+            b.property("LocalName").get(move |_ctx, _cr| {
+                Ok(name_property
+                    .lock()
+                    .expect("Poisoned mutex")
+                    .clone()
+                    .unwrap_or_else(String::new))
+            });
+            b.property("ServiceUUIDs").get(move |_ctx, _cr| {
+                Ok(uuids_property
+                    .lock()
+                    .expect("Poisoned mutex")
+                    .clone()
+                    .unwrap_or_else(Vec::new))
+            });
+        });
+        tree.insert(object_path.clone(), &[iface_token], ());
 
         Advertisement {
             connection,
             adapter,
-            object_path: path,
-            tree: Arc::new(Mutex::new(Some(tree))),
+            object_path,
+            tree: Arc::new(Mutex::new(tree)),
             is_advertising,
             name,
             uuids,
@@ -118,68 +89,46 @@ impl Advertisement {
 
     pub async fn register(self: &Self) -> Result<(), Error> {
         // Register with DBus
-        let mut tree = self.tree.lock().unwrap();
+        let proxy = self.connection.get_bluez_proxy(&self.adapter);
 
-        tree.as_mut()
-            .unwrap()
-            .set_registered(&self.connection.fallback, true)?;
-
-        self.connection
-            .fallback
-            .add_handler(Arc::new(tree.take().unwrap()));
-
-        // Create message to register advertisement with Bluez
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter,
-            LE_ADVERTISING_MANAGER_IFACE,
-            "RegisterAdvertisement",
-        )
-        .unwrap()
-        .append2(
-            &self.object_path,
-            HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
+        let mut match_rule = MatchRule::new();
+        match_rule.path = Some(self.object_path.clone());
+        let tree = self.tree.clone();
+        self.connection.default.start_receive(
+            match_rule,
+            Box::new(move |msg, conn| {
+                tree.lock().unwrap().handle_message(msg, conn).unwrap();
+                true
+            }),
         );
 
-        // Send message
-        let is_advertising = self.is_advertising.clone();
-        self.connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
-            .map_ok(move |_| {
-                is_advertising.store(true, Ordering::Relaxed);
-            })
-            .map_err(Error::from)
-            .await
+        proxy
+            .method_call(
+                LE_ADVERTISING_MANAGER_IFACE,
+                "RegisterAdvertisement",
+                (
+                    &self.object_path,
+                    HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
+                ),
+            )
+            .await?;
+        self.is_advertising.store(true, Ordering::Relaxed);
+        Ok(())
     }
 
     pub async fn unregister(self: &Self) -> Result<(), Error> {
-        // Create message to ungregister advertisement with Bluez
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter,
+        let proxy = self.connection.get_bluez_proxy(&self.adapter);
+
+        let method_call = proxy.method_call(
             LE_ADVERTISING_MANAGER_IFACE,
             "UnregisterAdvertisement",
-        )
-        .unwrap()
-        .append1(&self.object_path);
+            (&self.object_path,),
+        );
 
-        // Send message
-        let is_advertising = self.is_advertising.clone();
-        let method_call = self
-            .connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
-            .map_ok(|_| ())
-            .map_err(Error::from);
+        self.is_advertising.store(false, Ordering::Relaxed);
 
-        is_advertising.store(false, Ordering::Relaxed);
-
-        method_call.await
+        method_call.await?;
+        Ok(())
     }
 
     pub fn is_advertising(self: &Self) -> bool {

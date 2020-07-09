@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 pub const DBUS_PROPERTIES_IFACE: &str = "org.freedesktop.DBus.Properties";
 pub const DBUS_OBJECTMANAGER_IFACE: &str = "org.freedesktop.DBus.ObjectManager";
 
@@ -21,3 +23,5 @@ pub const BLUEZ_ERROR_FAILED: &str = "org.bluez.Error.Failed";
 pub const BLUEZ_ERROR_NOTSUPPORTED: &str = "org.bluez.Error.NotSupported";
 
 pub const PATH_BASE: &str = "/org/bluez/example";
+
+pub const BLUEZ_DBUS_TIMEOUT: Duration = Duration::from_secs(30);

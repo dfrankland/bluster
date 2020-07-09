@@ -6,17 +6,14 @@ mod constants;
 mod error;
 mod gatt;
 
-use futures::{future, prelude::*};
-use std::{
-    string::ToString,
-    sync::{Arc, Mutex},
-};
-use tokio::runtime::current_thread::Runtime;
+use futures::prelude::*;
+use std::{string::ToString, sync::Arc};
 use uuid::Uuid;
 
 use self::{adapter::Adapter, advertisement::Advertisement, connection::Connection, gatt::Gatt};
 use crate::{gatt::service::Service, Error};
 
+#[derive(Debug)]
 pub struct Peripheral {
     adapter: Adapter,
     gatt: Gatt,
@@ -25,23 +22,17 @@ pub struct Peripheral {
 
 impl Peripheral {
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(runtime: &Arc<Mutex<Runtime>>) -> impl Future<Output = Result<Self, Error>> {
-        let connection = match Connection::new(Arc::clone(&runtime)) {
-            Ok(connection) => Arc::new(connection),
-            Err(err) => return future::Either::Left(future::err(err)),
-        };
+    pub async fn new() -> Result<Self, Error> {
+        let connection = Arc::new(Connection::new()?);
+        let adapter = Adapter::new(connection.clone()).await?;
+        adapter.powered(true).await?;
+        let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
+        let advertisement = Advertisement::new(connection, adapter.object_path.clone());
 
-        future::Either::Right(async {
-            let adapter = Adapter::new(connection.clone()).await?;
-            adapter.powered(true).await?;
-            let gatt = Gatt::new(connection.clone(), adapter.object_path.clone());
-            let advertisement = Advertisement::new(connection, adapter.object_path.clone());
-
-            Ok(Peripheral {
-                adapter,
-                gatt,
-                advertisement,
-            })
+        Ok(Peripheral {
+            adapter,
+            gatt,
+            advertisement,
         })
     }
 
@@ -65,7 +56,10 @@ impl Peripheral {
 
         let advertisement = self.advertisement.register();
         let gatt = self.gatt.register();
-        let (stream, ..) = futures::join!(gatt, advertisement);
+        let (stream, ad_result) = futures::join!(gatt, advertisement);
+        if let Err(e) = ad_result {
+            log::error!("Failed to register advertisement: {}", e);
+        }
         stream
     }
 
@@ -73,13 +67,15 @@ impl Peripheral {
         let advertisement = self.advertisement.unregister();
         let gatt = self.gatt.unregister();
         let (ad_result, gatt_result) = futures::join!(advertisement, gatt);
-        ad_result?;
+        if let Err(e) = ad_result {
+            log::error!("Failed to unregister advertisement: {}", e);
+        }
         gatt_result?;
         Ok(())
     }
 
-    pub async fn is_advertising(self: &Self) -> bool {
-        self.advertisement.is_advertising()
+    pub async fn is_advertising(self: &Self) -> Result<bool, Error> {
+        Ok(self.advertisement.is_advertising())
     }
 
     pub fn add_service(self: &Self, service: &Service) -> Result<(), Error> {

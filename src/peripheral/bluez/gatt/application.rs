@@ -1,14 +1,12 @@
 use dbus::{
     arg::{RefArg, Variant},
-    Message, Path,
+    Path,
 };
-use dbus_tokio::tree::AFactory;
-use futures::compat::*;
 use std::{collections::HashMap, sync::Arc};
 
 use super::super::{
     common,
-    constants::{BLUEZ_SERVICE_NAME, GATT_GATT_MANAGER_IFACE, PATH_BASE},
+    constants::{GATT_GATT_MANAGER_IFACE, PATH_BASE},
     Connection, Error,
 };
 
@@ -25,63 +23,39 @@ impl Application {
         tree: &mut common::Tree,
         adapter: Path<'static>,
     ) -> Self {
-        let factory = AFactory::new_afn::<common::TData>();
-
-        let object_path = factory
-            .object_path(PATH_BASE, common::GattDataType::None)
-            .introspectable()
-            .object_manager();
-
-        let path = object_path.get_name().clone();
-
-        tree.insert(object_path);
+        tree.insert(PATH_BASE, &[tree.object_manager()], ());
 
         Application {
             connection,
-            object_path: path,
+            object_path: PATH_BASE.into(),
             adapter,
         }
     }
 
-    pub async fn register(self: &Self) -> Result<Message, Error> {
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter,
-            GATT_GATT_MANAGER_IFACE,
-            "RegisterApplication",
-        )
-        .unwrap()
-        .append2(
-            &self.object_path,
-            HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
-        );
-
-        self.connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
+    pub async fn register(self: &Self) -> Result<(), Error> {
+        let proxy = self.connection.get_bluez_proxy(&self.adapter);
+        proxy
+            .method_call(
+                GATT_GATT_MANAGER_IFACE,
+                "RegisterApplication",
+                (
+                    &self.object_path,
+                    HashMap::<String, Variant<Box<dyn RefArg>>>::new(),
+                ),
+            )
             .await
-            .map_err(Error::from)
+            .map_err(From::from)
     }
 
     pub async fn unregister(self: &Self) -> Result<(), Error> {
-        let message = Message::new_method_call(
-            BLUEZ_SERVICE_NAME,
-            &self.adapter,
-            GATT_GATT_MANAGER_IFACE,
-            "UnregisterApplication",
-        )
-        .unwrap()
-        .append1(&self.object_path);
-
-        self.connection
-            .default
-            .method_call(message)
-            .unwrap()
-            .compat()
+        let proxy = self.connection.get_bluez_proxy(&self.adapter);
+        proxy
+            .method_call(
+                GATT_GATT_MANAGER_IFACE,
+                "UnregisterApplication",
+                (&self.object_path,),
+            )
             .await
-            .map(|_| ())
-            .map_err(Error::from)
+            .map_err(From::from)
     }
 }

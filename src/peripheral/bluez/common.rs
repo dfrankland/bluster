@@ -1,5 +1,4 @@
-use dbus::tree::{MTFn, Tree as DbusTree};
-use dbus_tokio::tree::{ADataType, ATree};
+use dbus_crossroads::Crossroads;
 use std::sync::Arc;
 
 use crate::gatt;
@@ -10,7 +9,6 @@ pub enum GattDataType {
     // Service(Arc<gatt::service::Service>),
     Characteristic(Arc<gatt::characteristic::Characteristic>),
     Descriptor(Arc<gatt::descriptor::Descriptor>),
-    None,
 }
 
 impl GattDataType {
@@ -37,14 +35,4 @@ impl GattDataType {
     }
 }
 
-#[derive(Copy, Clone, Default, Debug)]
-pub struct TData;
-impl ADataType for TData {
-    type ObjectPath = GattDataType;
-    type Property = ();
-    type Interface = ();
-    type Method = ();
-    type Signal = ();
-}
-
-pub type Tree = DbusTree<MTFn<ATree<TData>>, ATree<TData>>;
+pub type Tree = Crossroads;
