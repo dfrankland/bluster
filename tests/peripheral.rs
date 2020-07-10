@@ -166,25 +166,21 @@ async fn it_advertises_gatt() {
     let main_fut = async move {
         while !peripheral.is_powered().await.unwrap() {}
         println!("Peripheral powered on");
-        let advertising_stream = peripheral.start_advertising(ADVERTISING_NAME, &[]).await;
-        match advertising_stream {
-            Ok(advertising_stream) => {
-                let ads_handled = tokio::time::timeout(
-                    Duration::from_secs(ADVERTISING_TIMEOUT),
-                    advertising_stream.for_each(|_| futures::future::ready(())),
-                )
-                .map(|_| ());
-                let ads_check = async { while !peripheral.is_advertising().await.unwrap() {} };
-                futures::join!(ads_check, ads_handled);
-                peripheral.stop_advertising().await.unwrap();
-                while peripheral.is_advertising().await.unwrap() {}
-                println!("Peripheral stopped advertising");
-            }
-            Err(e) => {
-                eprintln!("Error: {:?}", e);
-                tokio::time::delay_for(Duration::from_secs(ADVERTISING_TIMEOUT)).await;
-            }
-        }
+        let stream = peripheral.register_gatt().await.unwrap();
+        peripheral
+            .start_advertising(ADVERTISING_NAME, &[])
+            .await
+            .unwrap();
+        let ads_handled = tokio::time::timeout(
+            Duration::from_secs(ADVERTISING_TIMEOUT),
+            stream.for_each(|_| futures::future::ready(())),
+        )
+        .map(|_| ());
+        let ads_check = async { while !peripheral.is_advertising().await.unwrap() {} };
+        futures::join!(ads_check, ads_handled);
+        peripheral.stop_advertising().await.unwrap();
+        while peripheral.is_advertising().await.unwrap() {}
+        println!("Peripheral stopped advertising");
     };
 
     futures::join!(characteristic_handler, descriptor_handler, main_fut);

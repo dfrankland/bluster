@@ -7,8 +7,6 @@ mod into_bool;
 mod into_cbuuid;
 mod peripheral_manager;
 
-use futures::prelude::*;
-use std::time;
 use uuid::Uuid;
 
 use self::peripheral_manager::PeripheralManager;
@@ -30,16 +28,20 @@ impl Peripheral {
         Ok(self.peripheral_manager.is_powered())
     }
 
-    pub async fn start_advertising(
-        self: &Self,
-        name: &str,
-        uuids: &[Uuid],
-    ) -> Result<impl Stream<Item = ()>, Error> {
-        self.peripheral_manager.start_advertising(name, uuids);
-
+    pub async fn register_gatt(&self) -> Result<impl Stream<Item = ()>, Error> {
         // TODO: Create an actual stream
         let read_stream = tokio::time::interval(time::Duration::from_secs(1)).map(|_| ());
         Ok(Box::new(read_stream))
+    }
+
+    pub async fn unregister_gatt(&self) -> Result<(), Error> {
+        // TODO
+        Ok(())
+    }
+
+    pub async fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
+        self.peripheral_manager.start_advertising(name, uuids);
+        Ok(())
     }
 
     pub async fn stop_advertising(&self) -> Result<(), Error> {
