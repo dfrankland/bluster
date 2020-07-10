@@ -20,7 +20,7 @@ use bluster::{
 };
 
 const ADVERTISING_NAME: &str = "hello";
-const ADVERTISING_TIMEOUT: u64 = 60;
+const ADVERTISING_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[tokio::test]
 async fn it_advertises_gatt() {
@@ -166,18 +166,15 @@ async fn it_advertises_gatt() {
     let main_fut = async move {
         while !peripheral.is_powered().await.unwrap() {}
         println!("Peripheral powered on");
-        let stream = peripheral.register_gatt().await.unwrap();
+        peripheral.register_gatt().await.unwrap();
         peripheral
             .start_advertising(ADVERTISING_NAME, &[])
             .await
             .unwrap();
-        let ads_handled = tokio::time::timeout(
-            Duration::from_secs(ADVERTISING_TIMEOUT),
-            stream.for_each(|_| futures::future::ready(())),
-        )
-        .map(|_| ());
-        let ads_check = async { while !peripheral.is_advertising().await.unwrap() {} };
-        futures::join!(ads_check, ads_handled);
+        println!("Peripheral started advertising");
+        let ad_check = async { while !peripheral.is_advertising().await.unwrap() {} };
+        let timeout = tokio::time::delay_for(ADVERTISING_TIMEOUT);
+        futures::join!(ad_check, timeout);
         peripheral.stop_advertising().await.unwrap();
         while peripheral.is_advertising().await.unwrap() {}
         println!("Peripheral stopped advertising");

@@ -28,14 +28,11 @@ impl Peripheral {
         Ok(self.peripheral_manager.is_powered())
     }
 
-    pub async fn register_gatt(&self) -> Result<impl Stream<Item = ()>, Error> {
-        // TODO: Create an actual stream
-        let read_stream = tokio::time::interval(time::Duration::from_secs(1)).map(|_| ());
-        Ok(Box::new(read_stream))
+    pub async fn register_gatt(&self) -> Result<(), Error> {
+        Ok(())
     }
 
     pub async fn unregister_gatt(&self) -> Result<(), Error> {
-        // TODO
         Ok(())
     }
 

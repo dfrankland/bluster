@@ -6,7 +6,6 @@ mod constants;
 mod error;
 mod gatt;
 
-use futures::prelude::*;
 use std::{string::ToString, sync::Arc};
 use uuid::Uuid;
 
@@ -40,7 +39,7 @@ impl Peripheral {
         self.adapter.is_powered().await
     }
 
-    pub async fn register_gatt(&self) -> Result<impl Stream<Item = ()>, Error> {
+    pub async fn register_gatt(&self) -> Result<(), Error> {
         self.gatt.register().await
     }
 
