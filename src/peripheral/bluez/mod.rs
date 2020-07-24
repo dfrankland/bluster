@@ -6,7 +6,6 @@ mod constants;
 mod error;
 mod gatt;
 
-use futures::prelude::*;
 use std::{string::ToString, sync::Arc};
 use uuid::Uuid;
 
@@ -40,11 +39,15 @@ impl Peripheral {
         self.adapter.is_powered().await
     }
 
-    pub async fn start_advertising(
-        self: &Self,
-        name: &str,
-        uuids: &[Uuid],
-    ) -> Result<impl Stream<Item = ()>, Error> {
+    pub async fn register_gatt(&self) -> Result<(), Error> {
+        self.gatt.register().await
+    }
+
+    pub async fn unregister_gatt(&self) -> Result<(), Error> {
+        self.gatt.unregister().await
+    }
+
+    pub async fn start_advertising(self: &Self, name: &str, uuids: &[Uuid]) -> Result<(), Error> {
         self.advertisement.add_name(name);
         self.advertisement.add_uuids(
             uuids
@@ -54,24 +57,11 @@ impl Peripheral {
                 .collect::<Vec<String>>(),
         );
 
-        let advertisement = self.advertisement.register();
-        let gatt = self.gatt.register();
-        let (stream, ad_result) = futures::join!(gatt, advertisement);
-        if let Err(e) = ad_result {
-            log::error!("Failed to register advertisement: {}", e);
-        }
-        stream
+        self.advertisement.register().await
     }
 
     pub async fn stop_advertising(self: &Self) -> Result<(), Error> {
-        let advertisement = self.advertisement.unregister();
-        let gatt = self.gatt.unregister();
-        let (ad_result, gatt_result) = futures::join!(advertisement, gatt);
-        if let Err(e) = ad_result {
-            log::error!("Failed to unregister advertisement: {}", e);
-        }
-        gatt_result?;
-        Ok(())
+        self.advertisement.unregister().await
     }
 
     pub async fn is_advertising(self: &Self) -> Result<bool, Error> {

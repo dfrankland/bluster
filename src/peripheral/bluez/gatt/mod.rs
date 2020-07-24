@@ -5,7 +5,6 @@ mod flags;
 mod service;
 
 use dbus::{channel::MatchingReceiver, message::MatchRule, Path};
-use futures::{channel::mpsc::unbounded, prelude::*};
 use std::sync::{Arc, Mutex};
 
 use self::{
@@ -81,7 +80,7 @@ impl Gatt {
         Ok(())
     }
 
-    pub async fn register(self: &Self) -> Result<impl Stream<Item = ()>, Error> {
+    pub async fn register(self: &Self) -> Result<(), Error> {
         let mut tree = self.tree.lock().unwrap().take().unwrap();
 
         let new_application = Application::new(
@@ -95,32 +94,18 @@ impl Gatt {
             .unwrap()
             .replace(new_application.clone());
 
-        let (reg_sender, mut receiver) = unbounded();
-
-        let conn_sender = reg_sender.clone();
-
         let mut match_rule = MatchRule::new_method_call();
         match_rule.path = Some(PATH_BASE.into());
         match_rule.path_is_namespace = true;
         self.connection.default.start_receive(
             match_rule,
             Box::new(move |msg, conn| {
-                let mut conn_sender = conn_sender.clone();
-                tokio::spawn(async move { conn_sender.send(()).await });
                 tree.handle_message(msg, conn).unwrap();
                 true
             }),
         );
 
-        let registration = new_application.register().map(move |result| {
-            reg_sender.unbounded_send(()).unwrap();
-            result
-        });
-
-        let (reg_result, _) = futures::join!(registration, receiver.next());
-        reg_result?;
-
-        Ok(receiver)
+        new_application.register().await
     }
 
     pub async fn unregister(self: &Self) -> Result<(), Error> {
