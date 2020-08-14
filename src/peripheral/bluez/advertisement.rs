@@ -66,13 +66,29 @@ impl Advertisement {
                     .unwrap_or_else(Vec::new))
             });
         });
-        tree.insert(object_path.clone(), &[iface_token], ());
+        let ifaces = [iface_token, tree.object_manager()];
+        tree.insert(object_path.clone(), &ifaces, ());
+
+        let tree = Arc::new(Mutex::new(tree));
+
+        {
+            let tree = tree.clone();
+            let mut match_rule = MatchRule::new_method_call();
+            match_rule.path = Some(object_path.clone());
+            connection.default.start_receive(
+                match_rule,
+                Box::new(move |msg, conn| {
+                    tree.lock().unwrap().handle_message(msg, conn).unwrap();
+                    true
+                }),
+            );
+        }
 
         Advertisement {
             connection,
             adapter,
             object_path,
-            tree: Arc::new(Mutex::new(tree)),
+            tree,
             is_advertising,
             name,
             uuids,
@@ -90,18 +106,6 @@ impl Advertisement {
     pub async fn register(self: &Self) -> Result<(), Error> {
         // Register with DBus
         let proxy = self.connection.get_bluez_proxy(&self.adapter);
-
-        let mut match_rule = MatchRule::new();
-        match_rule.path = Some(self.object_path.clone());
-        let tree = self.tree.clone();
-        self.connection.default.start_receive(
-            match_rule,
-            Box::new(move |msg, conn| {
-                tree.lock().unwrap().handle_message(msg, conn).unwrap();
-                true
-            }),
-        );
-
         proxy
             .method_call(
                 LE_ADVERTISING_MANAGER_IFACE,

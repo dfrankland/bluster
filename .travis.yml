@@ -2,8 +2,6 @@ branches:
   only:
   - master
 language: rust
-rust:
-  - nightly
 cache:
   cargo: true
 matrix:
