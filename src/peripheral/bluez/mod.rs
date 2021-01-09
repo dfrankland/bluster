@@ -35,6 +35,14 @@ impl Peripheral {
         })
     }
 
+    pub async fn get_alias(&self) -> Result<String, Error> {
+        self.adapter.get_alias().await
+    }
+
+    pub async fn set_alias(&self, alias: &str) -> Result<(), Error> {
+        self.adapter.set_alias(alias).await
+    }
+
     pub async fn is_powered(self: &Self) -> Result<bool, Error> {
         self.adapter.is_powered().await
     }

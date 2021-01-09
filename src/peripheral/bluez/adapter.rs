@@ -70,4 +70,28 @@ impl Adapter {
             .await?;
         Ok(powered.0)
     }
+
+    pub async fn get_alias(self: &Self) -> Result<String, Error> {
+        let proxy = self.connection.get_bluez_proxy(&self.object_path);
+        let (alias,): (Variant<String>,) = proxy
+            .method_call(DBUS_PROPERTIES_IFACE, "Get", (ADAPTER_IFACE, "Alias"))
+            .await?;
+        Ok(alias.0)
+    }
+
+    pub async fn set_alias(self: &Self, alias: &str) -> Result<(), Error> {
+        let proxy = self.connection.get_bluez_proxy(&self.object_path);
+        proxy
+            .method_call(
+                DBUS_PROPERTIES_IFACE,
+                "Set",
+                (
+                    ADAPTER_IFACE,
+                    "Alias",
+                    MessageItem::Variant(Box::new(String::from(alias).into())),
+                ),
+            )
+            .await?;
+        Ok(())
+    }
 }
