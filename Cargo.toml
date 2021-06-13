@@ -11,13 +11,14 @@ keywords = ["BLE", "Bluetooth", "Bluez", "CoreBluetooth", "USB"]
 categories = ["os", "api-bindings", "hardware-support"]
 [dependencies]
 futures = "0.3"
-tokio = "0.2"
+tokio = { version = "1.0", features = ["macros", "rt"] }
 uuid = "0.8.1"
 log = "0.4"
 [target."cfg(any(target_os = \"linux\", target_os = \"android\"))".dependencies]
-dbus = "^0.8.4"
-dbus-tokio = "^0.5.2"
-dbus-crossroads = "^0.2.1"
+dbus = "^0.9.0"
+dbus-tokio = "^0.7.0"
+dbus-tree = "^0.9.1"
+dbus-crossroads = "^0.3.0"
 [target."cfg(any(target_os = \"macos\", target_os = \"ios\"))".dependencies]
 objc = "0.2.7"
 objc-foundation = "0.1.1"
