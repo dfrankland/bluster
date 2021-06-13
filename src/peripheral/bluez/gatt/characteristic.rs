@@ -2,9 +2,9 @@ use dbus::{
     arg::{RefArg, Variant},
     channel::Sender,
     nonblock::stdintf::org_freedesktop_dbus::PropertiesPropertiesChanged,
-    tree::MethodErr,
     Message, Path,
 };
+use dbus_tree::MethodErr;
 use futures::{
     channel::{mpsc, oneshot},
     prelude::*,
