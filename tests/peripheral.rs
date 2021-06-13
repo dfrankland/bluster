@@ -173,7 +173,7 @@ async fn it_advertises_gatt() {
             .unwrap();
         println!("Peripheral started advertising");
         let ad_check = async { while !peripheral.is_advertising().await.unwrap() {} };
-        let timeout = tokio::time::delay_for(ADVERTISING_TIMEOUT);
+        let timeout = tokio::time::sleep(ADVERTISING_TIMEOUT);
         futures::join!(ad_check, timeout);
         peripheral.stop_advertising().await.unwrap();
         while peripheral.is_advertising().await.unwrap() {}
