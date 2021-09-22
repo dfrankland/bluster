@@ -8,11 +8,6 @@ mod bluez;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub use self::bluez::Peripheral;
 
-#[cfg(any(target_os = "windows", target_os = "freebsd"))]
-mod usb;
-#[cfg(any(target_os = "windows", target_os = "freebsd"))]
-pub use self::usb::Peripheral;
-
 // TODO: Add struct / traits to implement for each OS
 //
 // pub enum BindingsEvent {
