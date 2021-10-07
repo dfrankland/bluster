@@ -169,7 +169,8 @@ impl Characteristic {
                         .notify
                         .clone()
                         .or_else(|| characteristic.properties.indicate.clone())
-                        .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))?;
+                        .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))?
+                        .sender();
                     event_sender
                         .send(gatt::event::Event::NotifySubscribe(notify_subscribe))
                         .await
@@ -189,7 +190,8 @@ impl Characteristic {
                         .notify
                         .clone()
                         .or_else(|| characteristic.properties.indicate.clone())
-                        .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))?;
+                        .ok_or_else(|| MethodErr::from((BLUEZ_ERROR_NOTSUPPORTED, "")))?
+                        .sender();
                     event_sender
                         .send(gatt::event::Event::NotifyUnsubscribe)
                         .await

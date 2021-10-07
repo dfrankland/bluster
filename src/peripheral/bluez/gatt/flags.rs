@@ -10,6 +10,7 @@ pub trait Flags {
 impl Flags for CharacteristicProperties {
     fn flags(self: &Self) -> Vec<String> {
         let mut flags = vec![];
+
         if let Some(ref read) = self.read {
             let read_flags: &[&str] = match read.0 {
                 characteristic::Secure::Secure(_) => &["secure-read", "encrypt-authenticated-read"],
@@ -31,12 +32,24 @@ impl Flags for CharacteristicProperties {
             flags.extend_from_slice(write_flag);
         }
 
-        if self.notify.is_some() {
-            flags.push("notify");
+        if let Some(ref notify) = self.notify {
+            let notify_flags: &[&str] = match notify.0 {
+                characteristic::Secure::Secure(_) => {
+                    &["encrypt-authenticated-notify", "secure-notify"]
+                }
+                characteristic::Secure::Insecure(_) => &["notify"],
+            };
+            flags.extend_from_slice(notify_flags);
         }
 
-        if self.indicate.is_some() {
-            flags.push("indicate");
+        if let Some(ref indicate) = self.indicate {
+            let indicate_flags: &[&str] = match indicate.0 {
+                characteristic::Secure::Secure(_) => {
+                    &["encrypt-authenticated-indicate", "secure-indicate"]
+                }
+                characteristic::Secure::Insecure(_) => &["indicate"],
+            };
+            flags.extend_from_slice(indicate_flags);
         }
 
         flags.iter().map(|s| String::from(*s)).collect()

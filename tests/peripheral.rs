@@ -40,7 +40,9 @@ async fn it_advertises_gatt() {
             Some(characteristic::Write::WithResponse(
                 characteristic::Secure::Insecure(sender_characteristic.clone()),
             )),
-            Some(sender_characteristic),
+            Some(characteristic::ServerInitiated(
+                characteristic::Secure::Insecure(sender_characteristic),
+            )),
             None,
         ),
         None,

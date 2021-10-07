@@ -38,14 +38,14 @@ macro_rules! _properties {
         pub struct Properties {
             pub(crate) read: Option<Read>,
             pub(crate) write: Option<Write>,
-            $(pub(crate) $member: Option<crate::gatt::event::EventSender>,)*
+            $(pub(crate) $member: Option<ServerInitiated>,)*
         }
 
         impl Properties {
             pub fn new(
                 read: Option<Read>,
                 write: Option<Write>,
-                $($member: Option<crate::gatt::event::EventSender>,)*
+                $($member: Option<ServerInitiated>,)*
             ) -> Self {
                 Properties {
                     read,
@@ -60,6 +60,7 @@ macro_rules! _properties {
         }
 
         _define_operation_struct!(Read);
+        _define_operation_struct!(ServerInitiated);
 
         #[derive(Debug, Clone)]
         pub enum Secure {
