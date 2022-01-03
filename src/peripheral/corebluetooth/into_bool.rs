@@ -16,7 +16,8 @@ impl IntoBool for BOOL {
 
 impl IntoBool for *mut Object {
     fn into_bool(self) -> bool {
-        (self as BOOL).into_bool()
+        let nil = 0 as *mut Object;
+        nil != self
     }
 }
 
