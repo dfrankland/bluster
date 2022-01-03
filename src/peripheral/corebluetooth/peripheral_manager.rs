@@ -3,13 +3,7 @@ use std::{
     sync::{Once, ONCE_INIT},
 };
 
-use objc::{
-    class,
-    declare::ClassDecl,
-    msg_send,
-    runtime::{Class, Object, Protocol, Sel, NO, YES},
-    sel, sel_impl,
-};
+use objc::{class, declare::ClassDecl, msg_send, runtime::{BOOL, Class, NO, Object, Protocol, Sel, YES}, sel, sel_impl};
 use objc_foundation::{
     INSArray, INSData, INSDictionary, INSString, NSArray, NSData, NSDictionary, NSObject, NSString,
 };
@@ -50,7 +44,7 @@ impl PeripheralManager {
             decl.add_protocol(Protocol::get("CBPeripheralManagerDelegate").unwrap());
 
             decl.add_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR);
-            decl.add_ivar::<*mut Object>(POWERED_ON_IVAR);
+            decl.add_ivar::<BOOL>(POWERED_ON_IVAR);
 
             unsafe {
                 decl.add_method(
@@ -103,7 +97,7 @@ impl PeripheralManager {
         unsafe {
             let powered_on = *self
                 .peripheral_manager_delegate
-                .get_ivar::<*mut Object>(POWERED_ON_IVAR);
+                .get_ivar::<BOOL>(POWERED_ON_IVAR);
             powered_on.into_bool()
         }
     }
@@ -227,7 +221,7 @@ extern "C" fn init(delegate: &mut Object, _cmd: Sel) -> *mut Object {
                                         queue:queue];
         delegate.set_ivar::<*mut Object>(PERIPHERAL_MANAGER_IVAR, obj);
 
-        delegate.set_ivar::<*mut Object>(POWERED_ON_IVAR, NO as *mut Object);
+        delegate.set_ivar::<BOOL>(POWERED_ON_IVAR, NO);
 
         delegate
     }

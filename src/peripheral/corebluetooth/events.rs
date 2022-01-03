@@ -1,8 +1,4 @@
-use objc::{
-    msg_send,
-    runtime::{Object, Sel, NO, YES},
-    sel, sel_impl,
-};
+use objc::{msg_send, runtime::{BOOL, NO, Object, Sel, YES}, sel, sel_impl};
 use objc_foundation::{INSArray, INSString, NSArray, NSObject, NSString};
 
 use super::{
@@ -37,11 +33,11 @@ pub extern "C" fn peripheral_manager_did_update_state(
             }
             CBManagerState::CBManagerStatePoweredOff => {
                 println!("CBManagerStatePoweredOff");
-                delegate.set_ivar::<*mut Object>(POWERED_ON_IVAR, NO as *mut Object);
+                delegate.set_ivar::<BOOL>(POWERED_ON_IVAR, NO);
             }
             CBManagerState::CBManagerStatePoweredOn => {
                 println!("CBManagerStatePoweredOn");
-                delegate.set_ivar::<*mut Object>(POWERED_ON_IVAR, YES as *mut Object);
+                delegate.set_ivar(POWERED_ON_IVAR, YES);
             }
         };
     }
