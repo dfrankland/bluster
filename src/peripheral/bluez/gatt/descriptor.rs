@@ -38,6 +38,7 @@ impl Descriptor {
                 ("value",),
                 |mut ctx, cr, (options,): (OptionsMap,)| {
                     let offset = options.get("offset").and_then(RefArg::as_u64).unwrap_or(0) as u16;
+                    let mtu = options.get("mtu").and_then(RefArg::as_u64).unwrap_or(23) as u16;
                     let descriptor = cr
                         .data_mut::<GattDataType>(ctx.path())
                         .unwrap()
@@ -54,6 +55,7 @@ impl Descriptor {
                             .send(gatt::event::Event::ReadRequest(gatt::event::ReadRequest {
                                 offset,
                                 response: sender,
+                                mtu,
                             }))
                             .await
                             .map_err(|_| MethodErr::from((BLUEZ_ERROR_FAILED, "")))?;
