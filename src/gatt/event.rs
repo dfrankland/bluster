@@ -12,9 +12,11 @@ pub enum Event {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct ReadRequest {
     pub offset: u16,
     pub response: ResponseSender,
+    pub mtu: u16,
 }
 
 #[derive(Debug)]
