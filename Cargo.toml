@@ -2,7 +2,7 @@
 authors = ["Dylan Frankland <github@frankland.io>"]
 edition = "2018"
 name = "bluster"
-version = "0.1.3"
+version = "0.2.0"
 license = "MIT"
 description = "A Rust crate for implementing BLE (Bluetooth Low Energy) peripherals"
 homepage = "https://github.com/dfrankland/bluster"
