@@ -155,10 +155,11 @@ async fn it_advertises_gatt() {
         }
     };
 
+    let service_uuid = Uuid::from_sdp_short_uuid(0x1234_u16);
     let peripheral = Peripheral::new().await.unwrap();
     peripheral
         .add_service(&Service::new(
-            Uuid::from_sdp_short_uuid(0x1234 as u16),
+            service_uuid,
             true,
             characteristics,
         ))
@@ -168,7 +169,7 @@ async fn it_advertises_gatt() {
         println!("Peripheral powered on");
         peripheral.register_gatt().await.unwrap();
         peripheral
-            .start_advertising(ADVERTISING_NAME, &[])
+            .start_advertising(ADVERTISING_NAME, &[service_uuid])
             .await
             .unwrap();
         println!("Peripheral started advertising");
