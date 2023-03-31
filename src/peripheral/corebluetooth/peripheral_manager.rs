@@ -123,8 +123,8 @@ impl PeripheralManager {
                 NSArray::from_vec(
                     uuids
                         .iter()
-                        .map(|u| NSString::from_str(&u.to_hyphenated().to_string()))
-                        .collect::<Vec<Id<NSString>>>()
+                        .map(|u| Id::from_ptr(u.into_cbuuid() as *mut NSObject))
+                        .collect::<Vec<Id<NSObject>>>()
                 ),
                 copy
             ]));
