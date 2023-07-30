@@ -1,4 +1,4 @@
-use super::{descriptor::Descriptor, event::EventSender};
+use super::descriptor::Descriptor;
 use std::{
     collections::HashSet,
     hash::{Hash, Hasher},
@@ -31,4 +31,4 @@ impl Characteristic {
 
 impl_uuid_hash_eq!(Characteristic);
 
-properties!(WriteWithAndWithoutResponse, EventSender, { notify: EventSender, indicate: EventSender });
+properties!(WriteWithAndWithoutResponse, {notify, indicate});

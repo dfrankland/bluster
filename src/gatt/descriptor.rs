@@ -1,4 +1,3 @@
-use super::event::EventSender;
 use std::hash::{Hash, Hasher};
 use uuid::Uuid;
 
@@ -21,4 +20,4 @@ impl Descriptor {
 
 impl_uuid_hash_eq!(Descriptor);
 
-properties!(WriteWithResponse, EventSender);
+properties!(WriteWithResponse);
