@@ -8,7 +8,7 @@ pub trait IntoCBUUID {
 
 impl IntoCBUUID for Uuid {
     fn into_cbuuid(self) -> *mut Object {
-        let uuid = self.to_hyphenated().to_string();
+        let uuid = self.hyphenated().to_string();
         let cls = class!(CBUUID);
         unsafe {
             let obj: *mut Object = msg_send![cls, alloc];
